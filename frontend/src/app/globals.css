@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@theme {
+  /* THE BLACK STACK - SINGLE SOURCE OF TRUTH */
+  --color-base-000: #000000; /* Deepest background (Level 0) */
+  --color-base-100: #0a0a0a; /* Floated elements like Sidebar (Level 1) */
+  --color-base-200: #141414; /* Cards, App background (Level 2) */
+  --color-base-300: #1f1f1f; /* Elevated elements, inputs, hover states (Level 3) */
+  --color-base-400: #2a2a2a; /* Borders, subtle dividers */
+  --color-base-500: #3a3a3a; /* Stronger borders, active states */
+
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a1a1aa;
+  --color-text-tertiary: #71717a;
+
+  /* SEMANTIC MAPPINGS */
+  --color-brand-bg: var(--color-base-000);
+  
+  --color-brand-sidebar: var(--color-base-100);
+  --color-brand-sidebar-hover: var(--color-base-200);
+  --color-brand-sidebar-active: var(--color-base-300);
+
+  --color-brand-card: var(--color-base-100);
+  --color-brand-card-hover: var(--color-base-200);
+
+  --color-brand-border: var(--color-base-400);
+  --color-brand-border-hover: var(--color-base-500);
+
+  --color-brand-text: var(--color-text-primary);
+  --color-brand-text-muted: var(--color-text-secondary);
+  --color-brand-text-dim: var(--color-text-tertiary);
+  
+  --color-brand-primary: var(--color-base-300);
+  --color-brand-primary-hover: var(--color-base-400);
+  
+  --color-brand-success: #10b981;
+  --color-brand-danger: #ef4444;
+  --color-brand-warning: #f59e0b;
+  --color-brand-purple: #8b5cf6;
+  --color-brand-cyan: #06b6d4;
+  --color-brand-pink: #ec4899;
+
+  --font-sans: var(--font-primary), system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-brand-bg);
+    color: var(--color-brand-text);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.5;
+    display: flex;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+  }
+  
+  * {
+    box-sizing: border-box;
+  }
+
+  /* Scrollbar override for webkit */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-brand-border);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-brand-text-dim);
+  }
+}
+

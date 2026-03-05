@@ -1,0 +1,215 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Command Center · AI Marketing Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',system-ui,-apple-system,sans-serif;background:#070E1A;color:#E8ECF4;display:flex;min-height:100vh;font-size:13px;line-height:1.5}
+.sidebar{width:240px;min-width:240px;background:#0D1527;border-right:1px solid #1E2D4A;padding:12px 8px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;position:sticky;top:0;height:100vh}
+.sidebar-header{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 16px}
+.logo{color:#fff;font-weight:700;font-size:15px}
+.close-sidebar{display:none;background:none;border:none;color:#8B98B5;font-size:22px;cursor:pointer}
+.nav-section{font-size:10px;font-weight:700;color:#5A6A8A;letter-spacing:1.2px;text-transform:uppercase;padding:16px 10px 4px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;color:#8B98B5;text-decoration:none;font-size:13px;transition:all .15s}
+.nav-item:hover{background:#131D33;color:#E8ECF4}
+.nav-item.active{background:#1A2744;color:#fff}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid #1E2D4A;background:#0D1527;position:sticky;top:0;z-index:50}
+.topbar-left{display:flex;align-items:center;gap:12px}
+.burger{display:none;background:none;border:none;color:#8B98B5;cursor:pointer;padding:4px}
+.page-title{color:#fff;font-size:17px;font-weight:600}
+.page-subtitle{color:#8B98B5;font-size:12px}
+.topbar-right{display:flex;align-items:center;gap:12px}
+.content{padding:24px;overflow-y:auto;flex:1}
+/* Cards */
+.card{background:#0D1527;border:1px solid #1E2D4A;border-radius:10px;padding:20px}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.card-title{color:#fff;font-weight:600;font-size:14px}
+/* Grid */
+.grid{display:grid;gap:16px}
+.grid-2{grid-template-columns:repeat(2,1fr)}
+.grid-3{grid-template-columns:repeat(3,1fr)}
+.grid-4{grid-template-columns:repeat(4,1fr)}
+.grid-6{grid-template-columns:repeat(6,1fr)}
+/* KPI */
+.kpi{background:#0D1527;border:1px solid #1E2D4A;border-radius:10px;padding:16px}
+.kpi-label{font-size:11px;color:#8B98B5;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.kpi-value{font-size:22px;font-weight:700;color:#fff}
+.kpi-sub{font-size:11px;margin-top:4px}
+.up{color:#10B981} .down{color:#EF4444} .flat{color:#8B98B5}
+/* Tabs */
+.tab-bar{display:flex;gap:4px;padding:4px;background:#111B30;border-radius:8px;margin-bottom:20px;border:1px solid #1E2D4A}
+.tab-btn{padding:8px 16px;border-radius:6px;border:none;background:transparent;color:#8B98B5;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;transition:all .15s;white-space:nowrap}
+.tab-btn:hover{color:#E8ECF4}
+.tab-btn.active{background:#3B82F6;color:#fff}
+.tab-panel{display:none}.tab-panel.active{display:block}
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:6px;border:none;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap}
+.btn-primary{background:#3B82F6;color:#fff}.btn-primary:hover{background:#2563EB}
+.btn-success{background:#10B981;color:#fff}.btn-success:hover{opacity:.85}
+.btn-danger{background:rgba(239,68,68,.15);color:#EF4444;border:1px solid rgba(239,68,68,.25)}.btn-danger:hover{background:rgba(239,68,68,.25)}
+.btn-ghost{background:transparent;color:#8B98B5;border:1px solid #1E2D4A}.btn-ghost:hover{color:#E8ECF4;border-color:#253554}
+.btn-sm{padding:5px 10px;font-size:11px}
+.btn-xs{padding:3px 8px;font-size:10px}
+/* Badges */
+.badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:10px;font-weight:600}
+.badge-ok{background:rgba(16,185,129,.12);color:#10B981}.badge-warn{background:rgba(245,158,11,.12);color:#F59E0B}.badge-danger{background:rgba(239,68,68,.12);color:#EF4444}.badge-info{background:rgba(59,130,246,.12);color:#3B82F6}.badge-purple{background:rgba(139,92,246,.12);color:#8B5CF6}
+/* Table */
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:10px;font-weight:600;color:#5A6A8A;text-transform:uppercase;letter-spacing:.5px;padding:10px 12px;border-bottom:1px solid #1E2D4A}
+td{padding:10px 12px;border-bottom:1px solid #1E2D4A;font-size:12px;color:#8B98B5}
+tr:hover td{background:#131D33}
+/* Toggle */
+.toggle{position:relative;width:40px;height:22px;cursor:pointer;display:inline-block}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;background:#1E2D4A;border-radius:11px;transition:.2s}
+.toggle input:checked+.toggle-track{background:#3B82F6}
+.toggle-thumb{position:absolute;top:3px;left:3px;width:16px;height:16px;background:#fff;border-radius:50%;transition:.2s}
+.toggle input:checked~.toggle-thumb{left:21px}
+/* Progress */
+.pbar{height:6px;background:#1E2D4A;border-radius:3px;overflow:hidden}
+.pbar-fill{height:100%;border-radius:3px;transition:width .4s}
+/* Toast */
+.toast-container{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 20px;border-radius:8px;color:#fff;font-size:13px;font-weight:500;animation:toastIn .3s ease;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.toast-ok{background:#10B981}.toast-warn{background:#F59E0B}.toast-danger{background:#EF4444}.toast-info{background:#3B82F6}
+@keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+/* Score circle */
+.score-ring{position:relative;width:48px;height:48px}
+.score-ring svg{transform:rotate(-90deg)}
+.score-ring .val{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff}
+/* Filter pills */
+.filter-bar{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.pill{padding:5px 12px;border-radius:20px;border:1px solid #1E2D4A;background:transparent;color:#8B98B5;font-size:11px;cursor:pointer;font-family:inherit;transition:all .15s}
+.pill:hover{border-color:#253554;color:#E8ECF4}
+.pill.active{background:#3B82F6;border-color:#3B82F6;color:#fff}
+/* Utility */
+.flex{display:flex}.flex-col{flex-direction:column}.items-center{align-items:center}.justify-between{justify-content:space-between}.gap-4{gap:4px}.gap-8{gap:8px}.gap-12{gap:12px}.gap-16{gap:16px}.gap-20{gap:20px}
+.mb-4{margin-bottom:4px}.mb-8{margin-bottom:8px}.mb-12{margin-bottom:12px}.mb-16{margin-bottom:16px}.mb-20{margin-bottom:20px}.mb-24{margin-bottom:24px}
+.mt-8{margin-top:8px}.mt-12{margin-top:12px}.mt-16{margin-top:16px}
+.fw-600{font-weight:600}.fw-700{font-weight:700}.fs-11{font-size:11px}.fs-12{font-size:12px}.fs-14{font-size:14px}.fs-16{font-size:16px}.fs-20{font-size:20px}.fs-24{font-size:24px}
+.text-white{color:#fff}.text-muted{color:#8B98B5}.text-dim{color:#5A6A8A}.text-accent{color:#3B82F6}.text-ok{color:#10B981}.text-warn{color:#F59E0B}.text-danger{color:#EF4444}
+.text-center{text-align:center}.text-right{text-align:right}
+.w-full{width:100%}.flex-1{flex:1}.shrink-0{flex-shrink:0}
+.overflow-auto{overflow-x:auto}
+.hidden{display:none!important}
+/* Range slider */
+input[type=range]{-webkit-appearance:none;width:100%;height:6px;background:#1E2D4A;border-radius:3px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;background:#3B82F6;border-radius:50%;cursor:pointer}
+select,input[type=text],input[type=email],textarea{background:#111B30;border:1px solid #1E2D4A;color:#E8ECF4;padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit;outline:none;width:100%}
+select:focus,input:focus,textarea:focus{border-color:#3B82F6}
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:flex;align-items:center;justify-content:center}
+.modal{background:#0D1527;border:1px solid #1E2D4A;border-radius:12px;padding:24px;max-width:420px;width:90%}
+.modal h3{color:#fff;margin-bottom:12px}.modal p{color:#8B98B5;font-size:13px;margin-bottom:20px}
+/* Responsive */
+@media(max-width:900px){
+.sidebar{position:fixed;left:-260px;top:0;bottom:0;z-index:100;transition:left .2s}.sidebar.open{left:0}
+.close-sidebar{display:block}.burger{display:block}
+.grid-3,.grid-4,.grid-6{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:600px){.grid-2,.grid-3,.grid-4,.grid-6{grid-template-columns:1fr}.content{padding:16px}}
+</style></head><body>
+<nav class="sidebar" id="sidebar"><div class="sidebar-header"><div class="logo">◆ AI Marketing</div><button class="close-sidebar" onclick="document.getElementById('sidebar').classList.remove('open')">&times;</button></div><div class="nav-section">OVERVIEW</div><a href="dashboard.html" class="nav-item active"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg><span>Command Center</span></a><a href="approvals.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg><span>Approver Queue</span></a><div class="nav-section">AGENT LAYER</div><a href="performance.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18M17 6h6v6"/></svg><span>Performance Marketing</span></a><a href="creative.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13a1.64 1.64 0 011.67-1.67h2c3.05 0 5.56-2.5 5.56-5.55C21.97 6.01 17.46 2 12 2z"/></svg><span>Creative Hub</span></a><a href="seo.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><span>SEO Command</span></a><a href="geo.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10A15.3 15.3 0 0112 2zM2 12h20"/></svg><span>GEO Intelligence</span></a><a href="nurture.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6"/></svg><span>Nurture Studio</span></a><a href="conversion.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4zM3 6h18M16 10a4 4 0 01-8 0"/></svg><span>Conversion Lab</span></a><a href="retention.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>Retention Engine</span></a><div class="nav-section">INTELLIGENCE</div><a href="intel.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 100 6 3 3 0 000-6z"/></svg><span>Competitive Intel</span></a><div class="nav-section">OPERATIONS</div><a href="simulator.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V14M4 10V3M12 21V12M12 8V3M20 21V16M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>Budget Simulator</span></a><a href="reports.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg><span>Reports & Briefs</span></a><a href="audit.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12l-4-4-8 8-4-4-4 4"/></svg><span>Audit Trail</span></a><a href="settings.html" class="nav-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/></svg><span>Settings</span></a></nav>
+<div class="main">
+<header class="topbar"><div class="topbar-left">
+<button class="burger" onclick="openSidebar()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+<div><div class="page-title">Command Center</div><div class="page-subtitle">Platform overview · All agents · Real-time</div></div>
+</div><div class="topbar-right">
+<button class="btn btn-ghost btn-sm" onclick="toast('Data refreshed','ok')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg> Refresh</button>
+<button class="btn btn-ghost btn-sm" onclick="toast('Export started – check your downloads','info')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export</button>
+</div></header>
+<div class="content"><div class="grid grid-6 mb-24"><div class="kpi"><div class="kpi-label">Blended ROAS</div>
+<div class="flex items-center justify-between"><div class="kpi-value">3.8x</div><svg width="80" height="24" style="flex-shrink:0"><polyline points="0.0,22.0 16.0,17.0 32.0,19.5 48.0,12.0 64.0,7.0 80.0,2.0" stroke="#10B981" stroke-width="1.5" fill="none"/></svg></div>
+<div class="kpi-sub up">+12%</div></div><div class="kpi"><div class="kpi-label">nCAC</div>
+<div class="flex items-center justify-between"><div class="kpi-value">$24.60</div><svg width="80" height="24" style="flex-shrink:0"><polyline points="0.0,2.0 16.0,9.4 32.0,13.1 48.0,16.8 64.0,20.5 80.0,22.0" stroke="#10B981" stroke-width="1.5" fill="none"/></svg></div>
+<div class="kpi-sub up">-8%</div></div><div class="kpi"><div class="kpi-label">Active Users</div>
+<div class="flex items-center justify-between"><div class="kpi-value">48.2K</div><svg width="80" height="24" style="flex-shrink:0"><polyline points="0.0,22.0 16.0,17.5 32.0,14.4 48.0,11.4 64.0,6.8 80.0,2.0" stroke="#10B981" stroke-width="1.5" fill="none"/></svg></div>
+<div class="kpi-sub up">+15%</div></div><div class="kpi"><div class="kpi-label">Churn Rate</div>
+<div class="flex items-center justify-between"><div class="kpi-value">3.2%</div><svg width="80" height="24" style="flex-shrink:0"><polyline points="0.0,2.0 16.0,6.4 32.0,13.1 48.0,15.3 64.0,19.8 80.0,22.0" stroke="#10B981" stroke-width="1.5" fill="none"/></svg></div>
+<div class="kpi-sub up">-0.4pp</div></div><div class="kpi"><div class="kpi-label">AI Share of Voice</div>
+<div class="flex items-center justify-between"><div class="kpi-value">34%</div><svg width="80" height="24" style="flex-shrink:0"><polyline points="0.0,22.0 16.0,17.0 32.0,13.7 48.0,10.3 64.0,7.0 80.0,2.0" stroke="#10B981" stroke-width="1.5" fill="none"/></svg></div>
+<div class="kpi-sub up">+6pp</div></div><div class="kpi"><div class="kpi-label">Approval Queue</div>
+<div class="flex items-center justify-between"><div class="kpi-value">7</div></div>
+<div class="kpi-sub text-warn">3 urgent</div></div></div><div class="card mb-24"><div class="card-header"><div class="card-title">⚡ Top 3 Actions This Week</div><a href="approvals.html" class="btn btn-ghost btn-sm">View queue →</a></div><div class="flex items-center gap-16 mb-12" style="padding:12px;background:#111B30;border-radius:8px;border:1px solid #1E2D4A">
+<div class="score-ring" style="width:48px;height:48px">
+<svg width="48" height="48"><circle cx="24" cy="24" r="21.0" stroke="#1E2D4A" stroke-width="3" fill="none"/>
+<circle cx="24" cy="24" r="21.0" stroke="#3B82F6" stroke-width="3" fill="none" stroke-dasharray="131.94678" stroke-dashoffset="10.555742399999994" stroke-linecap="round"/></svg>
+<div class="val">92</div></div>
+<div class="flex-1"><div class="text-white fw-600 fs-13">Scale Meta UK +30%</div>
+<div class="flex gap-8 mt-4"><span class="badge badge-info">Performance</span><span class="badge badge-warn">HIGH</span><span class="fs-11 text-muted">Budget reallocation</span></div>
+<div class="fs-11 text-muted mt-4">$12.4K rev impact</div></div>
+<div class="flex gap-8">
+<button class="btn btn-success btn-sm" onclick="this.disabled=true;this.textContent='Approved';toast('Action approved','ok')">Approve</button>
+<button class="btn btn-danger btn-sm" onclick="this.disabled=true;this.textContent='Rejected';toast('Action rejected','danger')">Reject</button>
+</div></div><div class="flex items-center gap-16 mb-12" style="padding:12px;background:#111B30;border-radius:8px;border:1px solid #1E2D4A">
+<div class="score-ring" style="width:48px;height:48px">
+<svg width="48" height="48"><circle cx="24" cy="24" r="21.0" stroke="#1E2D4A" stroke-width="3" fill="none"/>
+<circle cx="24" cy="24" r="21.0" stroke="#EF4444" stroke-width="3" fill="none" stroke-dasharray="131.94678" stroke-dashoffset="17.153081399999998" stroke-linecap="round"/></svg>
+<div class="val">87</div></div>
+<div class="flex-1"><div class="text-white fw-600 fs-13">Pause TikTok campaign 'Spring'</div>
+<div class="flex gap-8 mt-4"><span class="badge badge-info">Performance</span><span class="badge badge-danger">URGENT</span><span class="fs-11 text-muted">Kill signal</span></div>
+<div class="fs-11 text-muted mt-4">ROAS below floor 3 days</div></div>
+<div class="flex gap-8">
+<button class="btn btn-success btn-sm" onclick="this.disabled=true;this.textContent='Approved';toast('Action approved','ok')">Approve</button>
+<button class="btn btn-danger btn-sm" onclick="this.disabled=true;this.textContent='Rejected';toast('Action rejected','danger')">Reject</button>
+</div></div><div class="flex items-center gap-16 mb-12" style="padding:12px;background:#111B30;border-radius:8px;border:1px solid #1E2D4A">
+<div class="score-ring" style="width:48px;height:48px">
+<svg width="48" height="48"><circle cx="24" cy="24" r="21.0" stroke="#1E2D4A" stroke-width="3" fill="none"/>
+<circle cx="24" cy="24" r="21.0" stroke="#10B981" stroke-width="3" fill="none" stroke-dasharray="131.94678" stroke-dashoffset="29.028291599999996" stroke-linecap="round"/></svg>
+<div class="val">78</div></div>
+<div class="flex-1"><div class="text-white fw-600 fs-13">Approve win-back sequence</div>
+<div class="flex gap-8 mt-4"><span class="badge badge-info">Retention</span><span class="badge badge-info">MEDIUM</span><span class="fs-11 text-muted">Lifecycle</span></div>
+<div class="fs-11 text-muted mt-4">Target: 2,400 lapsed buyers</div></div>
+<div class="flex gap-8">
+<button class="btn btn-success btn-sm" onclick="this.disabled=true;this.textContent='Approved';toast('Action approved','ok')">Approve</button>
+<button class="btn btn-danger btn-sm" onclick="this.disabled=true;this.textContent='Rejected';toast('Action rejected','danger')">Reject</button>
+</div></div></div><div class="grid grid-2 mb-24">
+<div class="card"><div class="card-header"><div class="card-title">Revenue vs Ad Spend (6mo)</div></div>
+<canvas id="revChart" height="200"></canvas></div>
+<div class="card"><div class="card-header"><div class="card-title">Channel Performance</div></div>
+<canvas id="chanChart" height="200"></canvas></div></div>
+<script>
+new Chart(document.getElementById('revChart'),{type:'line',data:{labels:['Oct','Nov','Dec','Jan','Feb','Mar'],datasets:[
+{label:'Revenue',data:[180,210,245,230,260,290],borderColor:'#10B981',backgroundColor:'rgba(16,185,129,.08)',fill:true,tension:.3},
+{label:'Ad Spend',data:[50,55,60,58,62,68],borderColor:'#3B82F6',backgroundColor:'rgba(59,130,246,.08)',fill:true,tension:.3}
+]},options:{responsive:true,plugins:{legend:{labels:{color:'#8B98B5'}}},scales:{x:{ticks:{color:'#5A6A8A'},grid:{color:'#1E2D4A'}},y:{ticks:{color:'#5A6A8A',callback:v=>'$'+v+'K'},grid:{color:'#1E2D4A'}}}}});
+new Chart(document.getElementById('chanChart'),{type:'bar',data:{labels:['Google Ads','Meta Ads','TikTok','ASA','Snapchat','YouTube'],datasets:[
+{label:'ROAS',data:[4.2,3.6,2.8,5.1,1.9,3.2],backgroundColor:['#3B82F6','#8B5CF6','#EC4899','#10B981','#F59E0B','#06B6D4']}
+]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#5A6A8A'},grid:{display:false}},y:{ticks:{color:'#5A6A8A'},grid:{color:'#1E2D4A'}}}}});
+</script><div class="grid grid-3 mb-24">
+<div class="card"><div class="card-title mb-12">Competitive Landscape</div><div class="flex items-center justify-between mb-8"><span class="fs-12 text-white">CompA</span><span class="fs-12 up">62% (+3%)</span></div><div class="flex items-center justify-between mb-8"><span class="fs-12 text-white">CompB</span><span class="fs-12 down">18% (-1%)</span></div><div class="flex items-center justify-between mb-8"><span class="fs-12 text-white">Your Brand</span><span class="fs-12 up">20% (+5%)</span></div><a href="intel.html" class="btn btn-ghost btn-sm w-full mt-8" style="justify-content:center">Full report →</a></div><div class="card"><div class="card-title mb-12">AI Share of Voice</div><div class="mb-8"><div class="flex justify-between fs-11 mb-4"><span class="text-muted">Google AI Overview</span><span class="text-white">38%</span></div><div class="pbar"><div class="pbar-fill" style="width:38%;background:#3B82F6"></div></div></div><div class="mb-8"><div class="flex justify-between fs-11 mb-4"><span class="text-muted">ChatGPT</span><span class="text-white">31%</span></div><div class="pbar"><div class="pbar-fill" style="width:31%;background:#8B5CF6"></div></div></div><div class="mb-8"><div class="flex justify-between fs-11 mb-4"><span class="text-muted">Perplexity</span><span class="text-white">28%</span></div><div class="pbar"><div class="pbar-fill" style="width:28%;background:#06B6D4"></div></div></div><div class="mb-8"><div class="flex justify-between fs-11 mb-4"><span class="text-muted">Bing Copilot</span><span class="text-white">22%</span></div><div class="pbar"><div class="pbar-fill" style="width:22%;background:#EC4899"></div></div></div><a href="geo.html" class="btn btn-ghost btn-sm w-full mt-8" style="justify-content:center">GEO details →</a></div><div class="card"><div class="card-title mb-12">Agent Health</div><div class="flex items-center justify-between mb-6"><span class="fs-12 text-muted">Intelligence</span><span class="badge badge-ok">Healthy</span></div><div class="flex items-center justify-between mb-6"><span class="fs-12 text-muted">Performance</span><span class="badge badge-ok">Healthy</span></div><div class="flex items-center justify-between mb-6"><span class="fs-12 text-muted">Creative</span><span class="badge badge-warn">Degraded</span></div><div class="flex items-center justify-between mb-6"><span class="fs-12 text-muted">SEO</span><span class="badge badge-ok">Healthy</span></div><div class="flex items-center justify-between mb-6"><span class="fs-12 text-muted">GEO</span><span class="badge badge-ok">Healthy</span></div><div class="flex items-center justify-between mb-6"><span class="fs-12 text-muted">Decision Engine</span><span class="badge badge-ok">Healthy</span></div></div></div></div>
+</div>
+<script>
+function switchTab(group,id){
+  document.querySelectorAll('[data-tab-group="'+group+'"] .tab-btn').forEach(b=>{b.classList.toggle('active',b.dataset.tab===id)});
+  document.querySelectorAll('[data-panel-group="'+group+'"]').forEach(p=>{p.classList.toggle('active',p.dataset.panel===id)});
+}
+function toast(msg,type){
+  type=type||'info';
+  let c=document.getElementById('toasts');
+  if(!c){c=document.createElement('div');c.id='toasts';c.className='toast-container';document.body.appendChild(c)}
+  let t=document.createElement('div');t.className='toast toast-'+type;t.textContent=msg;c.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .3s';setTimeout(()=>t.remove(),300)},2800);
+}
+function toggleFilter(btn,group){
+  if(btn.classList.contains('active')&&document.querySelectorAll('.pill.active[data-fgroup="'+group+'"]').length>1){btn.classList.remove('active')}
+  else{btn.classList.add('active')}
+  applyFilters(group);
+}
+function setFilter(btn,group){
+  document.querySelectorAll('.pill[data-fgroup="'+group+'"]').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters(group);
+}
+function applyFilters(group){
+  let active=[];
+  document.querySelectorAll('.pill.active[data-fgroup="'+group+'"]').forEach(p=>active.push(p.dataset.fval));
+  document.querySelectorAll('[data-filterable="'+group+'"]').forEach(el=>{
+    if(active.includes('all')||active.some(v=>el.dataset.ftype===v||el.dataset.ftype2===v)){el.style.display=''}
+    else{el.style.display='none'}
+  });
+}
+function openSidebar(){document.getElementById('sidebar').classList.add('open')}
+</script>
+</body></html>
