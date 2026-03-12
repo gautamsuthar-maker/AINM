@@ -27,6 +27,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
     'simulator': { title: 'Budget Simulator', subtitle: 'Predictive modeling · Scenarios' },
     'reports': { title: 'Reports & Briefs', subtitle: 'Automated insights · Client exports' },
     'audit': { title: 'Audit Trail', subtitle: 'System logs · Activity history' },
+    'integrations': { title: 'Integrations', subtitle: 'Ad platforms · Data sources · OAuth connections' },
     'settings': { title: 'Platform Settings', subtitle: 'Configuration · Team members · Integrations' },
   };
 

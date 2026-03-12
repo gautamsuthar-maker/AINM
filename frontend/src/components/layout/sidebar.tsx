@@ -16,6 +16,7 @@ import {
   FileText,
   ShieldCheck,
   Settings,
+  Plug,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -61,6 +62,7 @@ const navSections: NavSection[] = [
   {
     section: 'OPERATIONS',
     items: [
+      { name: 'Integrations', href: '/integrations', icon: Plug },
       { name: 'Budget Simulator', href: '/simulator', icon: Activity },
       { name: 'Reports & Briefs', href: '/reports', icon: FileText },
       { name: 'Audit Trail', href: '/audit', icon: ShieldCheck },
@@ -114,17 +116,22 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           {navSections.map((group) => (
             <div key={group.section} className="pt-3">
 
-              {/* Section label row */}
-              <div className="flex items-center gap-2 px-2.5 pb-1">
-                {/* Small dot anchoring the line */}
-                <div className="h-1 w-1 rounded-full bg-white/20 shrink-0" />
+              {/* Section label row — pl-[10px] keeps dot at a known X position */}
+              <div className="flex items-center gap-2 pl-[10px] pr-2.5 pb-1">
+                {/*
+                  Dot is 5px wide → center = 10 + 2.5 = 12.5px from section left.
+                  Children ml-[12px] + w-px/2 = 12.5px → perfect alignment.
+                */}
+                <div className="h-[5px] w-[5px] rounded-full bg-white/25 shrink-0" />
                 <span className="text-[10px] font-bold uppercase tracking-[1.2px] text-brand-text-dim">
                   {group.section}
                 </span>
               </div>
 
-              {/* Children with vertical connector line — per-item segments */}
-              <div className="relative ml-[14px] flex flex-col gap-[2px]">
+              {/* Children — line originates from dot center */}
+              <div className="relative ml-[12px] flex flex-col gap-[2px]">
+                {/* Bridge: fills the pb-1 gap so the line is unbroken from the dot */}
+                <div className="absolute left-0 bottom-full h-1 w-px bg-white/10" />
                 {group.items.map((item, itemIdx) => {
                   const isActive =
                     pathname === item.href ||
