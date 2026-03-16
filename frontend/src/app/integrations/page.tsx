@@ -33,6 +33,7 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import type { CampaignData, ConnectionStatus as GadsStatus, CreateCampaignInput, GoogleAdsAccount } from '@/lib/google-ads/types';
+import type { LinkedInCampaign, LinkedInCampaignGroup, LinkedInCreative, LinkedInConnectionStatus as LiStatus, LinkedInAdAccount, CreateLinkedInCampaignInput, CreateCampaignGroupInput, CreateCreativeInput, TargetingCriteria } from '@/lib/linkedin-ads/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -177,6 +178,39 @@ const basePlatforms: Platform[] = [
     ],
   },
   {
+    id: 'linkedin-ads',
+    name: 'LinkedIn Ads',
+    logo: 'Li',
+    status: 'disconnected',
+    docsUrl: 'https://learn.microsoft.com/en-us/linkedin/marketing/',
+    authType: 'OAuth 2.0',
+    capabilityGroups: [
+      {
+        group: 'Campaign Management',
+        icon: Megaphone,
+        capabilities: [
+          { name: 'Campaign group & campaign', description: 'Sponsored Content, Message Ads, Dynamic Ads, Text Ads.', status: 'available', endpoints: ['POST /adCampaignGroups', 'POST /adCampaigns'] },
+          { name: 'Ad creative', description: 'Single image, carousel, video, conversation ads.', status: 'available', endpoints: ['POST /adCreatives'] },
+        ],
+      },
+      {
+        group: 'Audience & Targeting',
+        icon: Users,
+        capabilities: [
+          { name: 'Matched audiences', description: 'Contact list upload, website retargeting, Lookalike.', status: 'available', endpoints: ['POST /dmpSegments'] },
+          { name: 'B2B targeting', description: 'Company size, job function, seniority, industry, skills.', status: 'available', endpoints: ['GET /adTargetingFacets'] },
+        ],
+      },
+      {
+        group: 'Reporting',
+        icon: BarChart2,
+        capabilities: [
+          { name: 'Analytics API', description: 'Impressions, clicks, leads, video views, engagement.', status: 'available', endpoints: ['GET /adAnalytics'] },
+        ],
+      },
+    ],
+  },
+  {
     id: 'meta-ads',
     name: 'Meta Ads',
     logo: 'M',
@@ -256,39 +290,7 @@ const basePlatforms: Platform[] = [
       },
     ],
   },
-  {
-    id: 'linkedin-ads',
-    name: 'LinkedIn Ads',
-    logo: 'Li',
-    status: 'disconnected',
-    docsUrl: 'https://learn.microsoft.com/en-us/linkedin/marketing/',
-    authType: 'OAuth 2.0',
-    capabilityGroups: [
-      {
-        group: 'Campaign Management',
-        icon: Megaphone,
-        capabilities: [
-          { name: 'Campaign group & campaign', description: 'Sponsored Content, Message Ads, Dynamic Ads, Text Ads.', status: 'available', endpoints: ['POST /adCampaignGroups', 'POST /adCampaigns'] },
-          { name: 'Ad creative', description: 'Single image, carousel, video, conversation ads.', status: 'available', endpoints: ['POST /adCreatives'] },
-        ],
-      },
-      {
-        group: 'Audience & Targeting',
-        icon: Users,
-        capabilities: [
-          { name: 'Matched audiences', description: 'Contact list upload, website retargeting, Lookalike.', status: 'available', endpoints: ['POST /dmpSegments'] },
-          { name: 'B2B targeting', description: 'Company size, job function, seniority, industry, skills.', status: 'available', endpoints: ['GET /adTargetingFacets'] },
-        ],
-      },
-      {
-        group: 'Reporting',
-        icon: BarChart2,
-        capabilities: [
-          { name: 'Analytics API', description: 'Impressions, clicks, leads, video views, engagement.', status: 'available', endpoints: ['GET /adAnalytics'] },
-        ],
-      },
-    ],
-  },
+  
   {
     id: 'microsoft-ads',
     name: 'Microsoft Ads',
@@ -820,7 +822,7 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'platform' | 'google-ads';
+type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads';
 
 export default function IntegrationsPage() {
   const searchParams = useSearchParams();
@@ -940,10 +942,93 @@ export default function IntegrationsPage() {
     setAccessibleAccounts([]);
   }
 
-  // Build live platform list with real Google Ads status
+  // ── LinkedIn Ads state ───────────────────────────────────────────────────
+  const [liStatus, setLiStatus] = useState<LiStatus>({ connected: false, step: 'disconnected' });
+  const [liLoading, setLiLoading] = useState(true);
+  const [liCampaigns, setLiCampaigns] = useState<LinkedInCampaign[]>([]);
+  const [liCampaignsLoading, setLiCampaignsLoading] = useState(false);
+  const [liConnectingOAuth, setLiConnectingOAuth] = useState(false);
+  const [liAccounts, setLiAccounts] = useState<LinkedInAdAccount[]>([]);
+  const [liAccountsLoading, setLiAccountsLoading] = useState(false);
+  const [liSelectingAccount, setLiSelectingAccount] = useState<string | null>(null);
+
+  const fetchLiAccounts = useCallback(async () => {
+    setLiAccountsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/linkedin-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setLiAccounts(data.accounts ?? []);
+    } catch { setLiAccounts([]); }
+    finally { setLiAccountsLoading(false); }
+  }, []);
+
+  const checkLiConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/linkedin-ads/status');
+      const data: LiStatus = await res.json();
+      setLiStatus(data);
+      if (data.step === 'connected') fetchLiCampaigns();
+      if (data.step === 'authenticated') fetchLiAccounts();
+    } catch { setLiStatus({ connected: false, step: 'disconnected' }); }
+    finally { setLiLoading(false); }
+  }, [fetchLiAccounts]);
+
+  const fetchLiCampaigns = useCallback(async () => {
+    setLiCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/linkedin-ads/campaigns');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setLiCampaigns(data.campaigns ?? []);
+    } catch { setLiCampaigns([]); }
+    finally { setLiCampaignsLoading(false); }
+  }, []);
+
+  useEffect(() => { checkLiConnection(); }, [checkLiConnection]);
+
+  useEffect(() => {
+    if (searchParams.get('li_step') === 'select_account') { setTab('linkedin-ads'); checkLiConnection(); }
+    if (searchParams.get('li_error')) console.error('LinkedIn OAuth error:', searchParams.get('li_error'));
+  }, [searchParams, checkLiConnection]);
+
+  async function handleLinkedInConnect() {
+    setLiConnectingOAuth(true);
+    try {
+      const res = await fetch('/api/integrations/linkedin-ads/auth');
+      const data = await res.json();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch { setLiConnectingOAuth(false); }
+  }
+
+  async function handleLiSelectAccount(account: LinkedInAdAccount) {
+    setLiSelectingAccount(account.id);
+    try {
+      const res = await fetch('/api/integrations/linkedin-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: account.id, accountName: account.name }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await checkLiConnection();
+    } catch (err) { console.error('LinkedIn account selection error:', err); }
+    finally { setLiSelectingAccount(null); }
+  }
+
+  async function handleLinkedInDisconnect() {
+    await fetch('/api/integrations/linkedin-ads/disconnect', { method: 'POST' });
+    setLiStatus({ connected: false, step: 'disconnected' });
+    setLiCampaigns([]);
+    setLiAccounts([]);
+  }
+
+  // Build live platform list with real connection statuses
   const platforms = basePlatforms.map(p => {
     if (p.id === 'google-ads' && gadsStatus.connected) {
       return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: gadsStatus.customerId, lastSync: gadsStatus.connectedAt };
+    }
+    if (p.id === 'linkedin-ads' && liStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: liStatus.accountId, lastSync: liStatus.connectedAt };
     }
     return p;
   });
@@ -955,11 +1040,17 @@ export default function IntegrationsPage() {
   const activePlatformTotalCaps = activePlatform.capabilityGroups.reduce((a, g) => a + g.capabilities.length, 0);
   const activePlatformAvailableCaps = activePlatform.capabilityGroups.reduce((a, g) => a + g.capabilities.filter(c => c.status === 'available').length, 0);
 
-  // KPIs for campaigns
+  // Google Ads KPIs
   const totalImpressions = campaigns.reduce((a, c) => a + c.metrics.impressions, 0);
   const totalClicks = campaigns.reduce((a, c) => a + c.metrics.clicks, 0);
   const totalSpend = campaigns.reduce((a, c) => a + c.metrics.costMicros, 0);
   const totalConversions = campaigns.reduce((a, c) => a + c.metrics.conversions, 0);
+
+  // LinkedIn KPIs
+  const liTotalImpressions = liCampaigns.reduce((a, c) => a + c.metrics.impressions, 0);
+  const liTotalClicks = liCampaigns.reduce((a, c) => a + c.metrics.clicks, 0);
+  const liTotalSpend = liCampaigns.reduce((a, c) => a + c.metrics.spend, 0);
+  const liTotalConversions = liCampaigns.reduce((a, c) => a + c.metrics.conversions, 0);
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -989,6 +1080,7 @@ export default function IntegrationsPage() {
           { id: 'overview', label: 'Platform Overview' },
           { id: 'platform', label: 'Endpoint Explorer' },
           { id: 'google-ads', label: 'Google Ads', badge: gadsStatus.step !== 'disconnected' },
+          { id: 'linkedin-ads', label: 'LinkedIn Ads', badge: liStatus.step !== 'disconnected' },
         ] as { id: Tab; label: string; badge?: boolean }[]).map(t => (
           <button
             key={t.id}
@@ -1053,7 +1145,12 @@ export default function IntegrationsPage() {
                     <span className="text-[11px] text-brand-text-dim">{p.authType}</span>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => { setActivePlatformId(p.id); setTab(isGoogle && p.status === 'connected' ? 'google-ads' : 'platform'); }}
+                        onClick={() => {
+                          setActivePlatformId(p.id);
+                          if (isGoogle && p.status === 'connected') setTab('google-ads');
+                          else if (p.id === 'linkedin-ads' && p.status === 'connected') setTab('linkedin-ads');
+                          else setTab('platform');
+                        }}
                         className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1"
                       >
                         <Info size={12} /> Explore
@@ -1077,6 +1174,21 @@ export default function IntegrationsPage() {
                     ) : (
                       <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleGoogleConnect} disabled={connectingOAuth || gadsLoading}>
                         {connectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                      </Button>
+                    )
+                  ) : p.id === 'linkedin-ads' ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('linkedin-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handleLinkedInDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleLinkedInConnect} disabled={liConnectingOAuth || liLoading}>
+                        {liConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
                       </Button>
                     )
                   ) : (
@@ -1415,6 +1527,725 @@ export default function IntegrationsPage() {
                 </div>
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: LinkedIn Ads ── */}
+      {tab === 'linkedin-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Authorize', done: liStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Account', done: liStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: liStatus.step === 'connected' && liCampaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && liStatus.step === 'disconnected') ||
+                (step === 2 && liStatus.step === 'authenticated') ||
+                (step === 3 && liStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                      isCurrent ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                      'bg-brand-card text-brand-text-dim border border-brand-border'
+                    }`}>
+                      {done ? <CheckCircle2 size={14} /> : step}
+                    </div>
+                    <span className={`text-[12px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>
+                      {label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Authorize */}
+          {liStatus.step === 'disconnected' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="p-8 flex flex-col items-center text-center max-w-lg mx-auto">
+                <div className="h-16 w-16 rounded-2xl bg-blue-700 flex items-center justify-center text-[20px] font-bold text-white mb-5">Li</div>
+                <h3 className="text-[18px] font-bold text-white mb-2">Connect your LinkedIn Ads account</h3>
+                <p className="text-[13px] text-brand-text-muted mb-6 leading-relaxed">
+                  Sign in with LinkedIn to give AINM access to your advertising campaigns.
+                  You&apos;ll pick which ad account to connect in the next step.
+                </p>
+                <div className="flex flex-col gap-3 w-full mb-6">
+                  {[
+                    { icon: Eye, text: 'View all your Sponsored Content, Text Ads, and InMail campaigns' },
+                    { icon: Megaphone, text: 'Create and manage campaigns targeting professional audiences' },
+                    { icon: BarChart2, text: 'Pull impressions, clicks, spend, and conversion data' },
+                    { icon: Users, text: 'Target by job title, company size, industry, and seniority' },
+                  ].map(({ icon: Icon, text }) => (
+                    <div key={text} className="flex items-center gap-3 text-left rounded-lg bg-brand-bg border border-brand-border px-4 py-3">
+                      <Icon size={16} className="text-blue-400 shrink-0" />
+                      <span className="text-[12px] text-brand-text-muted">{text}</span>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="default" className="text-[13px] h-11 px-8" onClick={handleLinkedInConnect} disabled={liConnectingOAuth || liLoading}>
+                  {liConnectingOAuth
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Redirecting to LinkedIn...</>
+                    : liLoading
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Checking connection...</>
+                    : <>Sign in with LinkedIn</>
+                  }
+                </Button>
+                <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 — you can revoke access anytime from LinkedIn settings</p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Select Account */}
+          {liStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="border-b border-brand-border px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-blue-700 flex items-center justify-center text-[11px] font-bold text-white">Li</div>
+                  <div className="flex-1">
+                    <h3 className="text-[15px] font-bold text-white">Select a LinkedIn Ad Account</h3>
+                    <p className="text-[12px] text-brand-text-muted">Your LinkedIn profile has access to the ad accounts below.</p>
+                  </div>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleLinkedInDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Cancel
+                  </Button>
+                </div>
+              </div>
+              <div className="p-6">
+                {liAccountsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={24} className="animate-spin text-blue-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your LinkedIn Ad accounts...</span>
+                  </div>
+                ) : liAccounts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertCircle size={32} className="mx-auto text-amber-400 mb-3" />
+                    <p className="text-[14px] text-white mb-1">No LinkedIn Ad accounts found</p>
+                    <p className="text-[12px] text-brand-text-muted mb-4">Your LinkedIn account doesn&apos;t have access to any ad accounts.</p>
+                    <div className="flex gap-2 justify-center">
+                      <Button variant="default" className="text-[12px] h-8" onClick={fetchLiAccounts}><RefreshCw size={12} className="mr-1.5" /> Retry</Button>
+                      <Button variant="default" className="text-[12px] h-8" onClick={handleLinkedInDisconnect}>Try another account</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {liAccounts.map(account => (
+                      <button key={account.id} onClick={() => handleLiSelectAccount(account)} disabled={liSelectingAccount !== null}
+                        className="text-left rounded-xl border border-brand-border bg-brand-bg p-4 hover:border-blue-500/40 hover:bg-blue-500/5 transition-all group disabled:opacity-60">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="h-9 w-9 rounded-lg bg-blue-700/10 border border-blue-500/20 flex items-center justify-center">
+                            <Megaphone size={16} className="text-blue-400" />
+                          </div>
+                          {liSelectingAccount === account.id
+                            ? <Loader2 size={16} className="animate-spin text-blue-400" />
+                            : <ChevronRight size={16} className="text-brand-text-dim group-hover:text-blue-400 transition-colors" />
+                          }
+                        </div>
+                        <div className="text-[14px] font-semibold text-white mb-1 truncate">{account.name}</div>
+                        <div className="text-[12px] text-brand-text-muted mb-2 font-mono">ID: {account.id}</div>
+                        <div className="flex items-center gap-3">
+                          {account.currency && <span className="text-[11px] text-brand-text-dim">{account.currency}</span>}
+                          <Badge variant={account.status === 'ACTIVE' ? 'ok' : 'warn'}>{account.status}</Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Campaign Dashboard */}
+          {liStatus.step === 'connected' && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-blue-700 flex items-center justify-center text-[11px] font-bold text-white">Li</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[16px] font-bold text-white">{liStatus.accountName || 'LinkedIn Ads'}</h2>
+                      <Badge variant="ok">Connected</Badge>
+                    </div>
+                    <div className="text-[12px] text-brand-text-muted mt-0.5">
+                      Account ID: {liStatus.accountId}
+                      {liStatus.connectedAt && <> &middot; Connected {new Date(liStatus.connectedAt).toLocaleDateString()}</>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="default" className="text-[12px] h-8" onClick={fetchLiCampaigns} disabled={liCampaignsLoading}>
+                    <RefreshCw size={12} className={`mr-1.5 ${liCampaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleLinkedInDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Disconnect
+                  </Button>
+                </div>
+              </div>
+
+              {liCampaigns.length > 0 && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  {[
+                    { label: 'Campaigns', value: liCampaigns.length.toString(), icon: Megaphone, color: 'text-blue-400' },
+                    { label: 'Impressions', value: formatNumber(liTotalImpressions), icon: Eye, color: 'text-purple-400' },
+                    { label: 'Clicks', value: formatNumber(liTotalClicks), icon: MousePointerClick, color: 'text-emerald-400' },
+                    { label: 'Spend', value: `$${liTotalSpend.toFixed(2)}`, icon: DollarSign, color: 'text-amber-400' },
+                    { label: 'Conversions', value: liTotalConversions.toFixed(1), icon: TrendingUp, color: 'text-rose-400' },
+                  ].map(({ label, value, icon: Icon, color }) => (
+                    <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon size={14} className={color} />
+                        <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                      </div>
+                      <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[14px] font-semibold text-white">LinkedIn Campaigns (Last 30 Days)</h3>
+                  <span className="text-[11px] text-brand-text-dim">{liCampaigns.length} campaigns</span>
+                </div>
+                {liCampaignsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 size={24} className="animate-spin text-blue-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from LinkedIn...</span>
+                  </div>
+                ) : liCampaigns.length === 0 ? (
+                  <div className="text-center py-16">
+                    <Megaphone size={32} className="mx-auto text-brand-text-dim mb-3" />
+                    <p className="text-[14px] text-brand-text-muted mb-1">No campaigns found</p>
+                    <p className="text-[12px] text-brand-text-dim">Create your first campaign or check the connected account.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-brand-border text-[11px] uppercase tracking-wider text-brand-text-muted">
+                          <th className="pb-3 pr-4 font-medium">Campaign</th>
+                          <th className="pb-3 px-3 font-medium">Status</th>
+                          <th className="pb-3 px-3 font-medium">Type</th>
+                          <th className="pb-3 px-3 font-medium">Objective</th>
+                          <th className="pb-3 px-3 font-medium text-right">Impressions</th>
+                          <th className="pb-3 px-3 font-medium text-right">Clicks</th>
+                          <th className="pb-3 px-3 font-medium text-right">CTR</th>
+                          <th className="pb-3 px-3 font-medium text-right">Spend</th>
+                          <th className="pb-3 pl-3 font-medium text-right">Budget/day</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {liCampaigns.map(c => {
+                          const sc = c.status === 'ACTIVE' ? 'text-emerald-400' : c.status === 'PAUSED' ? 'text-amber-400' : 'text-brand-text-dim';
+                          return (
+                            <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-sidebar-hover/50 transition-colors">
+                              <td className="py-3 pr-4">
+                                <div className="text-[13px] font-medium text-white max-w-[260px] truncate">{c.name}</div>
+                                <div className="text-[11px] text-brand-text-dim">ID: {c.id}</div>
+                              </td>
+                              <td className="py-3 px-3"><span className={`text-[12px] font-medium ${sc}`}>{c.status}</span></td>
+                              <td className="py-3 px-3 text-[12px] text-brand-text-muted">{c.type.replace(/_/g, ' ')}</td>
+                              <td className="py-3 px-3 text-[12px] text-brand-text-muted">{c.objectiveType.replace(/_/g, ' ')}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.impressions)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.clicks)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">{formatPercent(c.metrics.ctr)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">${c.metrics.spend.toFixed(2)}</td>
+                              <td className="py-3 pl-3 text-right text-[13px] text-brand-text-muted tabular-nums">{c.dailyBudget ? `$${c.dailyBudget.toFixed(2)}` : '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <LinkedInCreateCampaignForm onCreated={fetchLiCampaigns} />
+
+              <LinkedInCampaignGroupsSection />
+              <LinkedInCreativesSection campaigns={liCampaigns} />
+
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Campaigns:</strong> <code className="text-blue-400">GET|POST /api/integrations/linkedin-ads/campaigns</code> — REST /adAccounts/&#123;id&#125;/adCampaigns (v202603)</p>
+                  <p><strong className="text-brand-text-muted">Groups:</strong> <code className="text-blue-400">GET|POST /api/integrations/linkedin-ads/campaign-groups</code> — /adAccounts/&#123;id&#125;/adCampaignGroups</p>
+                  <p><strong className="text-brand-text-muted">Creatives:</strong> <code className="text-blue-400">GET|POST /api/integrations/linkedin-ads/creatives</code> — /adAccounts/&#123;id&#125;/creatives</p>
+                  <p><strong className="text-brand-text-muted">Targeting:</strong> <code className="text-blue-400">GET /api/integrations/linkedin-ads/targeting/facets|entities</code></p>
+                  <p><strong className="text-brand-text-muted">Audience:</strong> <code className="text-blue-400">POST /api/integrations/linkedin-ads/audience-counts</code></p>
+                  <p><strong className="text-brand-text-muted">Pricing:</strong> <code className="text-blue-400">POST /api/integrations/linkedin-ads/budget-pricing</code></p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 — 60-day access token with auto-refresh</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── LinkedIn Create Campaign Form ────────────────────────────────────────────
+
+function LinkedInCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [showTargeting, setShowTargeting] = useState(false);
+
+  const [form, setForm] = useState<CreateLinkedInCampaignInput>({
+    name: '',
+    objectiveType: 'WEBSITE_VISITS',
+    type: 'SPONSORED_UPDATES',
+    costType: 'CPC',
+    dailyBudget: 50,
+    status: 'PAUSED',
+    audienceExpansionEnabled: false,
+  });
+
+  const [locationUrns, setLocationUrns] = useState('');
+  const [excludeSeniority, setExcludeSeniority] = useState('');
+
+  function updateField<K extends keyof CreateLinkedInCampaignInput>(key: K, value: CreateLinkedInCampaignInput[K]) {
+    setForm(prev => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true); setError(null); setSuccess(false);
+    try {
+      const payload = { ...form };
+
+      if (locationUrns.trim()) {
+        const locUrns = locationUrns.split(',').map(s => s.trim()).filter(Boolean);
+        const targeting: TargetingCriteria = {
+          include: { and: [{ or: { 'urn:li:adTargetingFacet:locations': locUrns } }] },
+        };
+        if (excludeSeniority.trim()) {
+          const exUrns = excludeSeniority.split(',').map(s => s.trim()).filter(Boolean);
+          targeting.exclude = { or: { 'urn:li:adTargetingFacet:seniorities': exUrns } };
+        }
+        payload.targetingCriteria = targeting;
+      }
+
+      const res = await fetch('/api/integrations/linkedin-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create campaign');
+      setSuccess(true);
+      setForm(prev => ({ ...prev, name: '' }));
+      onCreated();
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err: any) { setError(err.message); }
+    finally { setCreating(false); }
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        className="flex items-center gap-2 rounded-lg border border-dashed border-brand-border px-4 py-3 text-[13px] text-brand-text-muted hover:border-blue-500/40 hover:text-blue-400 transition-colors w-full">
+        <Plus size={16} /> Create a new LinkedIn campaign via API
+      </button>
+    );
+  }
+
+  const inputClass = 'w-full rounded-lg border border-brand-border bg-brand-bg px-3 py-2 text-[13px] text-white placeholder-brand-text-dim focus:border-blue-500/50 focus:outline-none transition-colors';
+  const labelClass = 'text-[11px] uppercase tracking-wider text-brand-text-muted font-medium mb-1.5 block';
+
+  return (
+    <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-[14px] font-semibold text-white">Create LinkedIn Campaign</h3>
+        <button onClick={() => setOpen(false)} className="text-[12px] text-brand-text-muted hover:text-white transition-colors">Cancel</button>
+      </div>
+      <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Q2 Brand Awareness – Decision Makers" value={form.name} onChange={e => updateField('name', e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Objective</label>
+          <select className={inputClass} value={form.objectiveType} onChange={e => updateField('objectiveType', e.target.value as any)}>
+            <option value="BRAND_AWARENESS">Brand Awareness</option>
+            <option value="WEBSITE_VISITS">Website Visits</option>
+            <option value="ENGAGEMENT">Engagement</option>
+            <option value="VIDEO_VIEWS">Video Views</option>
+            <option value="LEAD_GENERATION">Lead Generation</option>
+            <option value="WEBSITE_CONVERSIONS">Website Conversions</option>
+            <option value="JOB_APPLICANTS">Job Applicants</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Campaign Type</label>
+          <select className={inputClass} value={form.type} onChange={e => updateField('type', e.target.value as any)}>
+            <option value="SPONSORED_UPDATES">Sponsored Content</option>
+            <option value="TEXT_AD">Text Ads</option>
+            <option value="SPONSORED_INMAILS">Message Ads (InMail)</option>
+            <option value="DYNAMIC">Dynamic Ads</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Cost Type</label>
+          <select className={inputClass} value={form.costType} onChange={e => updateField('costType', e.target.value as any)}>
+            <option value="CPC">CPC (Cost per Click)</option>
+            <option value="CPM">CPM (Cost per 1K Impressions)</option>
+            <option value="CPV">CPV (Cost per View)</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Unit Cost / Bid ({form.currencyCode || 'USD'})</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 2.00" value={form.unitCost || ''} onChange={e => updateField('unitCost', e.target.value ? parseFloat(e.target.value) : undefined)} />
+        </div>
+        <div>
+          <label className={labelClass}>Daily Budget ({form.currencyCode || 'USD'})</label>
+          <input className={inputClass} type="number" min="10" step="1" value={form.dailyBudget} onChange={e => updateField('dailyBudget', parseFloat(e.target.value || '0'))} />
+        </div>
+        <div>
+          <label className={labelClass}>Total Budget (optional)</label>
+          <input className={inputClass} type="number" min="0" step="1" placeholder="No limit" value={form.totalBudget || ''} onChange={e => updateField('totalBudget', e.target.value ? parseFloat(e.target.value) : undefined)} />
+        </div>
+        <div>
+          <label className={labelClass}>Campaign Group ID (optional)</label>
+          <input className={inputClass} placeholder="e.g. 612345678" value={form.campaignGroupId || ''} onChange={e => updateField('campaignGroupId', e.target.value || undefined)} />
+        </div>
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={form.status} onChange={e => updateField('status', e.target.value as any)}>
+            <option value="PAUSED">Paused (recommended)</option>
+            <option value="ACTIVE">Active</option>
+            <option value="DRAFT">Draft</option>
+          </select>
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3">
+          <label className="flex items-center gap-2 text-[12px] text-brand-text-muted cursor-pointer">
+            <input type="checkbox" checked={form.audienceExpansionEnabled ?? false} onChange={e => updateField('audienceExpansionEnabled', e.target.checked)} className="rounded border-brand-border" />
+            Enable Audience Expansion
+          </label>
+          <button type="button" onClick={() => setShowTargeting(!showTargeting)} className="text-[12px] text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1">
+            <Target size={12} /> {showTargeting ? 'Hide' : 'Show'} Targeting Options
+          </button>
+        </div>
+
+        {showTargeting && (
+          <>
+            <div className="sm:col-span-2 rounded-lg border border-brand-border/60 bg-brand-bg/50 p-4 space-y-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Target size={14} className="text-blue-400" />
+                <span className="text-[12px] font-semibold text-white">Targeting Criteria</span>
+                <span className="text-[11px] text-brand-text-dim">(min. 300 audience members required)</span>
+              </div>
+              <div>
+                <label className={labelClass}>Include Locations (comma-separated URNs)</label>
+                <input className={inputClass} placeholder="urn:li:geo:103644278, urn:li:geo:101174742" value={locationUrns} onChange={e => setLocationUrns(e.target.value)} />
+                <p className="text-[10px] text-brand-text-dim mt-1">Use targeting entities API to discover URNs. US=urn:li:geo:103644278, Canada=urn:li:geo:101174742</p>
+              </div>
+              <div>
+                <label className={labelClass}>Exclude Seniorities (comma-separated URNs, optional)</label>
+                <input className={inputClass} placeholder="urn:li:seniority:3" value={excludeSeniority} onChange={e => setExcludeSeniority(e.target.value)} />
+                <p className="text-[10px] text-brand-text-dim mt-1">Entry=urn:li:seniority:3, Senior=urn:li:seniority:4, Manager=urn:li:seniority:5</p>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5" disabled={creating || !form.name}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── LinkedIn Campaign Groups Section ─────────────────────────────────────────
+
+function LinkedInCampaignGroupsSection() {
+  const [open, setOpen] = useState(false);
+  const [groups, setGroups] = useState<LinkedInCampaignGroup[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [groupName, setGroupName] = useState('');
+  const [groupBudget, setGroupBudget] = useState('');
+
+  const fetchGroups = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/integrations/linkedin-ads/campaign-groups');
+      const data = await res.json();
+      if (res.ok) setGroups(data.groups ?? []);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { if (open && groups.length === 0) fetchGroups(); }, [open, fetchGroups, groups.length]);
+
+  async function handleCreateGroup(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true); setError(null);
+    try {
+      const payload: CreateCampaignGroupInput = { name: groupName, status: 'ACTIVE' };
+      if (groupBudget) payload.totalBudget = { amount: groupBudget, currencyCode: 'USD' };
+      const res = await fetch('/api/integrations/linkedin-ads/campaign-groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create group');
+      setGroupName(''); setGroupBudget(''); setShowCreate(false);
+      fetchGroups();
+    } catch (err: any) { setError(err.message); }
+    finally { setCreating(false); }
+  }
+
+  const inputClass = 'w-full rounded-lg border border-brand-border bg-brand-bg px-3 py-2 text-[13px] text-white placeholder-brand-text-dim focus:border-blue-500/50 focus:outline-none transition-colors';
+
+  return (
+    <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-brand-sidebar-hover/50 transition-colors">
+        <div className="flex items-center gap-2">
+          <Users size={16} className="text-blue-400" />
+          <span className="text-[13px] font-semibold text-white">Campaign Groups</span>
+          {groups.length > 0 && <Badge variant="info">{groups.length}</Badge>}
+        </div>
+        {open ? <ChevronDown size={16} className="text-brand-text-dim" /> : <ChevronRight size={16} className="text-brand-text-dim" />}
+      </button>
+
+      {open && (
+        <div className="border-t border-brand-border p-5 space-y-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={20} className="animate-spin text-blue-400" />
+              <span className="ml-2 text-[13px] text-brand-text-muted">Loading campaign groups...</span>
+            </div>
+          ) : groups.length === 0 ? (
+            <p className="text-[13px] text-brand-text-muted text-center py-6">No campaign groups found. Groups let you manage budget and status across multiple campaigns.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-brand-border text-[11px] uppercase tracking-wider text-brand-text-muted">
+                    <th className="pb-2 pr-4 font-medium">Name</th>
+                    <th className="pb-2 px-3 font-medium">Status</th>
+                    <th className="pb-2 px-3 font-medium text-right">Total Budget</th>
+                    <th className="pb-2 pl-3 font-medium">ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map(g => (
+                    <tr key={g.id} className="border-b border-brand-border/50">
+                      <td className="py-2.5 pr-4 text-[13px] text-white font-medium">{g.name}</td>
+                      <td className="py-2.5 px-3"><Badge variant={g.status === 'ACTIVE' ? 'ok' : 'warn'}>{g.status}</Badge></td>
+                      <td className="py-2.5 px-3 text-right text-[13px] text-brand-text-muted">{g.totalBudget ? `${g.totalBudget.currencyCode} ${g.totalBudget.amount}` : '—'}</td>
+                      <td className="py-2.5 pl-3 text-[11px] text-brand-text-dim font-mono">{g.id}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {showCreate ? (
+            <form onSubmit={handleCreateGroup} className="rounded-lg border border-brand-border/60 bg-brand-bg/50 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] font-semibold text-white">New Campaign Group</span>
+                <button type="button" onClick={() => setShowCreate(false)} className="text-[11px] text-brand-text-muted hover:text-white">Cancel</button>
+              </div>
+              <input className={inputClass} placeholder="Group name" value={groupName} onChange={e => setGroupName(e.target.value)} required />
+              <input className={inputClass} placeholder="Total budget (USD, optional)" type="number" min="0" step="1" value={groupBudget} onChange={e => setGroupBudget(e.target.value)} />
+              {error && <p className="text-[11px] text-red-400">{error}</p>}
+              <Button type="submit" variant="default" className="text-[12px] h-8" disabled={creating || !groupName}>
+                {creating ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <Plus size={12} className="mr-1.5" />} Create Group
+              </Button>
+            </form>
+          ) : (
+            <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 text-[12px] text-blue-400 hover:text-blue-300 transition-colors">
+              <Plus size={14} /> Create Campaign Group
+            </button>
+          )}
+
+          <button onClick={fetchGroups} disabled={loading} className="flex items-center gap-1.5 text-[11px] text-brand-text-dim hover:text-white transition-colors">
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── LinkedIn Creatives Section ───────────────────────────────────────────────
+
+function LinkedInCreativesSection({ campaigns }: { campaigns: LinkedInCampaign[] }) {
+  const [open, setOpen] = useState(false);
+  const [creatives, setCreatives] = useState<LinkedInCreative[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedCampaign, setSelectedCampaign] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [creativeForm, setCreativeForm] = useState<CreateCreativeInput>({
+    campaignId: '',
+    type: 'TEXT_AD',
+    clickUri: '',
+    title: '',
+    text: '',
+    status: 'ACTIVE',
+  });
+
+  const fetchCreatives = useCallback(async () => {
+    setLoading(true);
+    try {
+      const url = selectedCampaign
+        ? `/api/integrations/linkedin-ads/creatives?campaignId=${selectedCampaign}`
+        : '/api/integrations/linkedin-ads/creatives';
+      const res = await fetch(url);
+      const data = await res.json();
+      if (res.ok) setCreatives(data.creatives ?? []);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
+  }, [selectedCampaign]);
+
+  useEffect(() => { if (open) fetchCreatives(); }, [open, fetchCreatives]);
+
+  async function handleCreateCreative(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true); setError(null);
+    try {
+      const res = await fetch('/api/integrations/linkedin-ads/creatives', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(creativeForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create creative');
+      setShowCreate(false);
+      setCreativeForm(prev => ({ ...prev, title: '', text: '', clickUri: '' }));
+      fetchCreatives();
+    } catch (err: any) { setError(err.message); }
+    finally { setCreating(false); }
+  }
+
+  const inputClass = 'w-full rounded-lg border border-brand-border bg-brand-bg px-3 py-2 text-[13px] text-white placeholder-brand-text-dim focus:border-blue-500/50 focus:outline-none transition-colors';
+  const labelClass = 'text-[11px] uppercase tracking-wider text-brand-text-muted font-medium mb-1.5 block';
+
+  return (
+    <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-brand-sidebar-hover/50 transition-colors">
+        <div className="flex items-center gap-2">
+          <FileSearch size={16} className="text-purple-400" />
+          <span className="text-[13px] font-semibold text-white">Ad Creatives</span>
+          {creatives.length > 0 && <Badge variant="info">{creatives.length}</Badge>}
+        </div>
+        {open ? <ChevronDown size={16} className="text-brand-text-dim" /> : <ChevronRight size={16} className="text-brand-text-dim" />}
+      </button>
+
+      {open && (
+        <div className="border-t border-brand-border p-5 space-y-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <select className={`${inputClass} max-w-[260px]`} value={selectedCampaign} onChange={e => setSelectedCampaign(e.target.value)}>
+              <option value="">All campaigns</option>
+              {campaigns.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
+            </select>
+            <button onClick={fetchCreatives} disabled={loading} className="flex items-center gap-1.5 text-[12px] text-brand-text-dim hover:text-white transition-colors">
+              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={20} className="animate-spin text-purple-400" />
+              <span className="ml-2 text-[13px] text-brand-text-muted">Loading creatives...</span>
+            </div>
+          ) : creatives.length === 0 ? (
+            <p className="text-[13px] text-brand-text-muted text-center py-6">No ad creatives found. Create one to define how your ad appears on LinkedIn.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-brand-border text-[11px] uppercase tracking-wider text-brand-text-muted">
+                    <th className="pb-2 pr-4 font-medium">Title</th>
+                    <th className="pb-2 px-3 font-medium">Type</th>
+                    <th className="pb-2 px-3 font-medium">Status</th>
+                    <th className="pb-2 px-3 font-medium">Campaign ID</th>
+                    <th className="pb-2 pl-3 font-medium">Link</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {creatives.map(cr => (
+                    <tr key={cr.id} className="border-b border-brand-border/50">
+                      <td className="py-2.5 pr-4 text-[13px] text-white font-medium max-w-[200px] truncate">{cr.title || cr.id}</td>
+                      <td className="py-2.5 px-3 text-[12px] text-brand-text-muted">{cr.type.replace(/_/g, ' ')}</td>
+                      <td className="py-2.5 px-3"><Badge variant={cr.status === 'ACTIVE' ? 'ok' : 'warn'}>{cr.status}</Badge></td>
+                      <td className="py-2.5 px-3 text-[11px] text-brand-text-dim font-mono">{cr.campaignId}</td>
+                      <td className="py-2.5 pl-3 text-[11px] text-blue-400 max-w-[160px] truncate">{cr.clickUri || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {showCreate ? (
+            <form onSubmit={handleCreateCreative} className="rounded-lg border border-brand-border/60 bg-brand-bg/50 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] font-semibold text-white">New Ad Creative</span>
+                <button type="button" onClick={() => setShowCreate(false)} className="text-[11px] text-brand-text-muted hover:text-white">Cancel</button>
+              </div>
+              <div>
+                <label className={labelClass}>Campaign</label>
+                <select className={inputClass} value={creativeForm.campaignId} onChange={e => setCreativeForm(p => ({ ...p, campaignId: e.target.value }))} required>
+                  <option value="">Select campaign...</option>
+                  {campaigns.map(c => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Creative Type</label>
+                <select className={inputClass} value={creativeForm.type} onChange={e => setCreativeForm(p => ({ ...p, type: e.target.value as any }))}>
+                  <option value="TEXT_AD">Text Ad</option>
+                  <option value="SPONSORED_UPDATES">Sponsored Content</option>
+                  <option value="SPONSORED_INMAILS">Sponsored InMail</option>
+                  <option value="SPONSORED_VIDEO">Sponsored Video</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Click URL</label>
+                <input className={inputClass} placeholder="https://example.com/landing" value={creativeForm.clickUri} onChange={e => setCreativeForm(p => ({ ...p, clickUri: e.target.value }))} required />
+              </div>
+              {creativeForm.type === 'TEXT_AD' && (
+                <>
+                  <div>
+                    <label className={labelClass}>Ad Title (max 25 chars)</label>
+                    <input className={inputClass} placeholder="Your Ad Title" maxLength={25} value={creativeForm.title} onChange={e => setCreativeForm(p => ({ ...p, title: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Ad Description (max 75 chars)</label>
+                    <input className={inputClass} placeholder="Short description of your ad" maxLength={75} value={creativeForm.text} onChange={e => setCreativeForm(p => ({ ...p, text: e.target.value }))} />
+                  </div>
+                </>
+              )}
+              {error && <p className="text-[11px] text-red-400">{error}</p>}
+              <Button type="submit" variant="default" className="text-[12px] h-8" disabled={creating || !creativeForm.campaignId || !creativeForm.clickUri}>
+                {creating ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <Plus size={12} className="mr-1.5" />} Create Creative
+              </Button>
+            </form>
+          ) : (
+            <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 text-[12px] text-purple-400 hover:text-purple-300 transition-colors">
+              <Plus size={14} /> Create Ad Creative
+            </button>
           )}
         </div>
       )}
