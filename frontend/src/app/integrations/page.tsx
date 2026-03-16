@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,11 +25,18 @@ import {
   Info,
   Plus,
   Plug,
+  Loader2,
+  Unplug,
+  TrendingUp,
+  MousePointerClick,
+  Eye,
+  ArrowUpDown,
 } from 'lucide-react';
+import type { CampaignData, ConnectionStatus as GadsStatus, CreateCampaignInput, GoogleAdsAccount } from '@/lib/google-ads/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ConnectionStatus = 'connected' | 'partial' | 'disconnected';
+type PlatformConnectionStatus = 'connected' | 'partial' | 'disconnected';
 type CapabilityStatus = 'available' | 'beta' | 'planned' | 'unavailable';
 
 interface Capability {
@@ -48,7 +56,7 @@ interface Platform {
   id: string;
   name: string;
   logo: string;
-  status: ConnectionStatus;
+  status: PlatformConnectionStatus;
   lastSync?: string;
   accountId?: string;
   capabilityGroups: CapabilityGroup[];
@@ -56,9 +64,9 @@ interface Platform {
   authType: string;
 }
 
-// ─── Data ─────────────────────────────────────────────────────────────────────
+// ─── Platform Data ────────────────────────────────────────────────────────────
 
-const platforms: Platform[] = [
+const basePlatforms: Platform[] = [
   {
     id: 'google-ads',
     name: 'Google Ads',
@@ -71,324 +79,99 @@ const platforms: Platform[] = [
         group: 'Campaign Management',
         icon: Megaphone,
         capabilities: [
-          {
-            name: 'Create & manage campaigns',
-            description: 'Full CRUD on Search, Display, Shopping, Video, App, Demand Gen, and Performance Max campaigns.',
-            status: 'available',
-            endpoints: ['CampaignService.MutateCampaigns', 'CampaignService.GetCampaign'],
-          },
-          {
-            name: 'Ad group management',
-            description: 'Create, pause, or remove ad groups within campaigns.',
-            status: 'available',
-            endpoints: ['AdGroupService.MutateAdGroups'],
-          },
-          {
-            name: 'Ad creation & variants',
-            description: 'Responsive search ads, display ads, shopping ads, video ads, and dynamic search ads.',
-            status: 'available',
-            endpoints: ['AdGroupAdService.MutateAdGroupAds'],
-          },
-          {
-            name: 'Performance Max campaigns',
-            description: 'Cross-channel campaigns across Search, Display, YouTube, Gmail, Maps.',
-            status: 'available',
-            endpoints: ['CampaignService', 'AssetGroupService', 'AssetGroupAssetService'],
-          },
-          {
-            name: 'Campaign Drafts & Experiments',
-            description: 'A/B test campaign settings or targeting with experiment arms.',
-            status: 'available',
-            endpoints: ['ExperimentService', 'ExperimentArmService'],
-          },
+          { name: 'Create & manage campaigns', description: 'Full CRUD on Search, Display, Shopping, Video, App, Demand Gen, and Performance Max campaigns.', status: 'available', endpoints: ['CampaignService.MutateCampaigns', 'CampaignService.GetCampaign'] },
+          { name: 'Ad group management', description: 'Create, pause, or remove ad groups within campaigns.', status: 'available', endpoints: ['AdGroupService.MutateAdGroups'] },
+          { name: 'Ad creation & variants', description: 'Responsive search ads, display ads, shopping ads, video ads, and dynamic search ads.', status: 'available', endpoints: ['AdGroupAdService.MutateAdGroupAds'] },
+          { name: 'Performance Max campaigns', description: 'Cross-channel campaigns across Search, Display, YouTube, Gmail, Maps.', status: 'available', endpoints: ['CampaignService', 'AssetGroupService', 'AssetGroupAssetService'] },
+          { name: 'Campaign Drafts & Experiments', description: 'A/B test campaign settings or targeting with experiment arms.', status: 'available', endpoints: ['ExperimentService', 'ExperimentArmService'] },
         ],
       },
       {
         group: 'Bidding & Budget',
         icon: DollarSign,
         capabilities: [
-          {
-            name: 'Smart Bidding strategies',
-            description: 'Maximize Conversions, Target CPA, Target ROAS, Enhanced CPC, Maximize Conversion Value.',
-            status: 'available',
-            endpoints: ['BiddingStrategyService.MutateBiddingStrategies'],
-          },
-          {
-            name: 'Portfolio bidding',
-            description: 'Cross-campaign shared bidding strategies.',
-            status: 'available',
-            endpoints: ['BiddingStrategyService'],
-          },
-          {
-            name: 'Manual bid management',
-            description: 'Keyword-level, ad group-level, and placement-level bid adjustments.',
-            status: 'available',
-            endpoints: ['AdGroupCriterionService', 'CampaignBidModifierService'],
-          },
-          {
-            name: 'Budget creation & sharing',
-            description: 'Create, assign, share budgets across campaigns.',
-            status: 'available',
-            endpoints: ['CampaignBudgetService.MutateCampaignBudgets'],
-          },
-          {
-            name: 'Seasonality adjustments',
-            description: 'Temporary conversion rate adjustments for known high/low traffic events.',
-            status: 'available',
-            endpoints: ['BiddingSeasonalityAdjustmentService'],
-          },
-          {
-            name: 'Bid simulations',
-            description: 'Forecast performance impact of different bid values.',
-            status: 'available',
-            endpoints: ['AdGroupBidSimulationService', 'KeywordPlanService'],
-          },
+          { name: 'Smart Bidding strategies', description: 'Maximize Conversions, Target CPA, Target ROAS, Enhanced CPC, Maximize Conversion Value.', status: 'available', endpoints: ['BiddingStrategyService.MutateBiddingStrategies'] },
+          { name: 'Portfolio bidding', description: 'Cross-campaign shared bidding strategies.', status: 'available', endpoints: ['BiddingStrategyService'] },
+          { name: 'Manual bid management', description: 'Keyword-level, ad group-level, and placement-level bid adjustments.', status: 'available', endpoints: ['AdGroupCriterionService', 'CampaignBidModifierService'] },
+          { name: 'Budget creation & sharing', description: 'Create, assign, share budgets across campaigns.', status: 'available', endpoints: ['CampaignBudgetService.MutateCampaignBudgets'] },
+          { name: 'Seasonality adjustments', description: 'Temporary conversion rate adjustments for known high/low traffic events.', status: 'available', endpoints: ['BiddingSeasonalityAdjustmentService'] },
+          { name: 'Bid simulations', description: 'Forecast performance impact of different bid values.', status: 'available', endpoints: ['AdGroupBidSimulationService', 'KeywordPlanService'] },
         ],
       },
       {
         group: 'Reporting & Analytics',
         icon: BarChart2,
         capabilities: [
-          {
-            name: 'GAQL custom reporting',
-            description: 'SQL-like query language to fetch any metric/dimension combination across all resources.',
-            status: 'available',
-            endpoints: ['GoogleAdsService.Search', 'GoogleAdsService.SearchStream'],
-          },
-          {
-            name: 'Performance metrics',
-            description: 'Impressions, clicks, CTR, CPC, conversions, ROAS, quality score, view-through conversions.',
-            status: 'available',
-            endpoints: ['GoogleAdsService.Search'],
-          },
-          {
-            name: 'Segmented reporting',
-            description: 'Segment by device, network, date, ad schedule, click type, conversion action, and more.',
-            status: 'available',
-            endpoints: ['GoogleAdsService.Search'],
-          },
-          {
-            name: 'Reach forecasting',
-            description: 'Forecast impressions, views, CPM for video/display campaigns.',
-            status: 'available',
-            endpoints: ['ReachPlanService.GenerateReachForecast'],
-          },
-          {
-            name: 'Keyword forecast metrics',
-            description: 'Historical and forecast performance data for keyword planning.',
-            status: 'available',
-            endpoints: ['KeywordPlanService.GenerateForecastMetrics'],
-          },
+          { name: 'GAQL custom reporting', description: 'SQL-like query language to fetch any metric/dimension combination across all resources.', status: 'available', endpoints: ['GoogleAdsService.Search', 'GoogleAdsService.SearchStream'] },
+          { name: 'Performance metrics', description: 'Impressions, clicks, CTR, CPC, conversions, ROAS, quality score, view-through conversions.', status: 'available', endpoints: ['GoogleAdsService.Search'] },
+          { name: 'Segmented reporting', description: 'Segment by device, network, date, ad schedule, click type, conversion action, and more.', status: 'available', endpoints: ['GoogleAdsService.Search'] },
+          { name: 'Reach forecasting', description: 'Forecast impressions, views, CPM for video/display campaigns.', status: 'available', endpoints: ['ReachPlanService.GenerateReachForecast'] },
+          { name: 'Keyword forecast metrics', description: 'Historical and forecast performance data for keyword planning.', status: 'available', endpoints: ['KeywordPlanService.GenerateForecastMetrics'] },
         ],
       },
       {
         group: 'Audience Management',
         icon: Users,
         capabilities: [
-          {
-            name: 'Customer Match',
-            description: 'Upload hashed email/phone lists to target existing customers.',
-            status: 'available',
-            endpoints: ['UserListService.MutateUserLists', 'OfflineUserDataJobService'],
-          },
-          {
-            name: 'Remarketing lists (RLSA)',
-            description: 'Create and manage website visitor remarketing audiences.',
-            status: 'available',
-            endpoints: ['UserListService'],
-          },
-          {
-            name: 'Lookalike segments',
-            description: 'Automatically generated audiences similar to your customer lists.',
-            status: 'available',
-            endpoints: ['UserListService'],
-          },
-          {
-            name: 'Custom audiences',
-            description: 'Audiences based on interests, search behavior, app usage.',
-            status: 'available',
-            endpoints: ['CustomAudienceService'],
-          },
-          {
-            name: 'Audience insights',
-            description: 'Demographic and interest breakdown of your audiences.',
-            status: 'available',
-            endpoints: ['AudienceInsightsService'],
-          },
+          { name: 'Customer Match', description: 'Upload hashed email/phone lists to target existing customers.', status: 'available', endpoints: ['UserListService.MutateUserLists', 'OfflineUserDataJobService'] },
+          { name: 'Remarketing lists (RLSA)', description: 'Create and manage website visitor remarketing audiences.', status: 'available', endpoints: ['UserListService'] },
+          { name: 'Lookalike segments', description: 'Automatically generated audiences similar to your customer lists.', status: 'available', endpoints: ['UserListService'] },
+          { name: 'Custom audiences', description: 'Audiences based on interests, search behavior, app usage.', status: 'available', endpoints: ['CustomAudienceService'] },
+          { name: 'Audience insights', description: 'Demographic and interest breakdown of your audiences.', status: 'available', endpoints: ['AudienceInsightsService'] },
         ],
       },
       {
         group: 'Conversion Tracking',
         icon: Target,
         capabilities: [
-          {
-            name: 'Conversion action management',
-            description: 'Create and configure online conversion actions (web, app, calls).',
-            status: 'available',
-            endpoints: ['ConversionActionService.MutateConversionActions'],
-          },
-          {
-            name: 'Offline conversion import',
-            description: 'Upload CRM-matched conversions with click IDs (GCLID).',
-            status: 'available',
-            endpoints: ['OfflineUserDataJobService', 'ConversionUploadService'],
-          },
-          {
-            name: 'Enhanced conversions (web)',
-            description: 'Improve conversion measurement by sending hashed first-party customer data.',
-            status: 'available',
-            endpoints: ['ConversionUploadService.UploadClickConversions'],
-          },
-          {
-            name: 'Enhanced conversions (leads)',
-            description: 'Match form leads to conversions using email/phone hashes.',
-            status: 'available',
-            endpoints: ['ConversionUploadService'],
-          },
-          {
-            name: 'Store sales conversions',
-            description: 'Measure in-store purchases driven by ads.',
-            status: 'available',
-            endpoints: ['OfflineUserDataJobService'],
-          },
-          {
-            name: 'Conversion value rules',
-            description: 'Adjust conversion values based on audience, location, or device.',
-            status: 'available',
-            endpoints: ['ConversionValueRuleService', 'ConversionValueRuleSetService'],
-          },
+          { name: 'Conversion action management', description: 'Create and configure online conversion actions (web, app, calls).', status: 'available', endpoints: ['ConversionActionService.MutateConversionActions'] },
+          { name: 'Offline conversion import', description: 'Upload CRM-matched conversions with click IDs (GCLID).', status: 'available', endpoints: ['OfflineUserDataJobService', 'ConversionUploadService'] },
+          { name: 'Enhanced conversions (web)', description: 'Improve conversion measurement by sending hashed first-party customer data.', status: 'available', endpoints: ['ConversionUploadService.UploadClickConversions'] },
+          { name: 'Enhanced conversions (leads)', description: 'Match form leads to conversions using email/phone hashes.', status: 'available', endpoints: ['ConversionUploadService'] },
+          { name: 'Store sales conversions', description: 'Measure in-store purchases driven by ads.', status: 'available', endpoints: ['OfflineUserDataJobService'] },
+          { name: 'Conversion value rules', description: 'Adjust conversion values based on audience, location, or device.', status: 'available', endpoints: ['ConversionValueRuleService', 'ConversionValueRuleSetService'] },
         ],
       },
       {
         group: 'Assets & Creative',
         icon: FileSearch,
         capabilities: [
-          {
-            name: 'Asset library management',
-            description: 'Upload, link, and manage image, text, video, call, and location assets.',
-            status: 'available',
-            endpoints: ['AssetService.MutateAssets'],
-          },
-          {
-            name: 'Video upload',
-            description: 'Upload video assets directly via the API.',
-            status: 'available',
-            endpoints: ['AssetService'],
-          },
-          {
-            name: 'Asset group setup (PMax)',
-            description: 'Manage asset groups and listing groups for Performance Max.',
-            status: 'available',
-            endpoints: ['AssetGroupService', 'AssetGroupAssetService', 'AssetGroupListingGroupFilterService'],
-          },
-          {
-            name: 'Asset performance reporting',
-            description: 'Performance metrics per asset across all campaigns.',
-            status: 'available',
-            endpoints: ['GoogleAdsService.Search (asset_field_type_view)'],
-          },
-          {
-            name: 'AI asset generation',
-            description: 'Generate ad creatives using Google AI (closed beta).',
-            status: 'beta',
-            endpoints: ['AssetGenerationService'],
-          },
+          { name: 'Asset library management', description: 'Upload, link, and manage image, text, video, call, and location assets.', status: 'available', endpoints: ['AssetService.MutateAssets'] },
+          { name: 'Video upload', description: 'Upload video assets directly via the API.', status: 'available', endpoints: ['AssetService'] },
+          { name: 'Asset group setup (PMax)', description: 'Manage asset groups and listing groups for Performance Max.', status: 'available', endpoints: ['AssetGroupService', 'AssetGroupAssetService', 'AssetGroupListingGroupFilterService'] },
+          { name: 'Asset performance reporting', description: 'Performance metrics per asset across all campaigns.', status: 'available', endpoints: ['GoogleAdsService.Search (asset_field_type_view)'] },
+          { name: 'AI asset generation', description: 'Generate ad creatives using Google AI (closed beta).', status: 'beta', endpoints: ['AssetGenerationService'] },
         ],
       },
       {
         group: 'Keyword & SEO',
         icon: BrainCircuit,
         capabilities: [
-          {
-            name: 'Keyword planning',
-            description: 'Generate keyword ideas from seed keywords or URLs.',
-            status: 'available',
-            endpoints: ['KeywordPlanIdeaService.GenerateKeywordIdeas'],
-          },
-          {
-            name: 'Ad group theme generation',
-            description: 'AI-suggested ad group themes from a set of seed keywords.',
-            status: 'available',
-            endpoints: ['KeywordPlanIdeaService.GenerateAdGroupThemes'],
-          },
-          {
-            name: 'Keyword criteria management',
-            description: 'Add, pause, remove keywords; set match types and bids.',
-            status: 'available',
-            endpoints: ['AdGroupCriterionService.MutateAdGroupCriteria'],
-          },
-          {
-            name: 'Search term reports',
-            description: 'Actual search queries that triggered your ads.',
-            status: 'available',
-            endpoints: ['GoogleAdsService.Search (search_term_view)'],
-          },
+          { name: 'Keyword planning', description: 'Generate keyword ideas from seed keywords or URLs.', status: 'available', endpoints: ['KeywordPlanIdeaService.GenerateKeywordIdeas'] },
+          { name: 'Ad group theme generation', description: 'AI-suggested ad group themes from a set of seed keywords.', status: 'available', endpoints: ['KeywordPlanIdeaService.GenerateAdGroupThemes'] },
+          { name: 'Keyword criteria management', description: 'Add, pause, remove keywords; set match types and bids.', status: 'available', endpoints: ['AdGroupCriterionService.MutateAdGroupCriteria'] },
+          { name: 'Search term reports', description: 'Actual search queries that triggered your ads.', status: 'available', endpoints: ['GoogleAdsService.Search (search_term_view)'] },
         ],
       },
       {
         group: 'Account & Access',
         icon: Lock,
         capabilities: [
-          {
-            name: 'Multi-account (MCC) management',
-            description: 'Manage hundreds of accounts from a single manager account.',
-            status: 'available',
-            endpoints: ['CustomerService.ListAccessibleCustomers', 'GoogleAdsService'],
-          },
-          {
-            name: 'Account creation',
-            description: 'Programmatically create new sub-accounts under a manager.',
-            status: 'available',
-            endpoints: ['CustomerService.CreateCustomerClient'],
-          },
-          {
-            name: 'User access management',
-            description: 'Invite users and manage access levels per account.',
-            status: 'available',
-            endpoints: ['CustomerUserAccessService', 'CustomerUserAccessInvitationService'],
-          },
-          {
-            name: 'Change history',
-            description: 'Full audit log of all changes made to campaigns, ads, bids.',
-            status: 'available',
-            endpoints: ['ChangeStatusService', 'ChangeEventService'],
-          },
-          {
-            name: 'Billing & invoices',
-            description: 'Manage billing setups, account budgets, and retrieve invoices.',
-            status: 'available',
-            endpoints: ['BillingSetupService', 'AccountBudgetService', 'InvoiceService'],
-          },
+          { name: 'Multi-account (MCC) management', description: 'Manage hundreds of accounts from a single manager account.', status: 'available', endpoints: ['CustomerService.ListAccessibleCustomers', 'GoogleAdsService'] },
+          { name: 'Account creation', description: 'Programmatically create new sub-accounts under a manager.', status: 'available', endpoints: ['CustomerService.CreateCustomerClient'] },
+          { name: 'User access management', description: 'Invite users and manage access levels per account.', status: 'available', endpoints: ['CustomerUserAccessService', 'CustomerUserAccessInvitationService'] },
+          { name: 'Change history', description: 'Full audit log of all changes made to campaigns, ads, bids.', status: 'available', endpoints: ['ChangeStatusService', 'ChangeEventService'] },
+          { name: 'Billing & invoices', description: 'Manage billing setups, account budgets, and retrieve invoices.', status: 'available', endpoints: ['BillingSetupService', 'AccountBudgetService', 'InvoiceService'] },
         ],
       },
       {
         group: 'Shopping & Retail',
         icon: ShoppingCart,
         capabilities: [
-          {
-            name: 'Shopping campaigns',
-            description: 'Create and manage Shopping campaigns linked to Merchant Center.',
-            status: 'available',
-            endpoints: ['CampaignService', 'ProductGroupViewService'],
-          },
-          {
-            name: 'Listing group filters',
-            description: 'Segment product inventory for bid control within Shopping/PMax.',
-            status: 'available',
-            endpoints: ['AssetGroupListingGroupFilterService'],
-          },
-          {
-            name: 'Merchant Center link',
-            description: 'Link Merchant Center accounts for product feed access.',
-            status: 'available',
-            endpoints: ['MerchantCenterLinkService'],
-          },
-          {
-            name: 'Retail Performance Max',
-            description: 'Shopping-feed-driven Performance Max campaigns.',
-            status: 'available',
-            endpoints: ['CampaignService', 'ShoppingProductService'],
-          },
+          { name: 'Shopping campaigns', description: 'Create and manage Shopping campaigns linked to Merchant Center.', status: 'available', endpoints: ['CampaignService', 'ProductGroupViewService'] },
+          { name: 'Listing group filters', description: 'Segment product inventory for bid control within Shopping/PMax.', status: 'available', endpoints: ['AssetGroupListingGroupFilterService'] },
+          { name: 'Merchant Center link', description: 'Link Merchant Center accounts for product feed access.', status: 'available', endpoints: ['MerchantCenterLinkService'] },
+          { name: 'Retail Performance Max', description: 'Shopping-feed-driven Performance Max campaigns.', status: 'available', endpoints: ['CampaignService', 'ShoppingProductService'] },
         ],
       },
     ],
@@ -609,9 +392,58 @@ const platforms: Platform[] = [
   },
 ];
 
-// ─── Helper Components ────────────────────────────────────────────────────────
+// ─── Formatting Helpers ───────────────────────────────────────────────────────
 
-const statusConfig: Record<ConnectionStatus, { label: string; badgeVariant: 'ok' | 'warn' | 'danger' | 'default'; dot: string }> = {
+function microsToDollars(micros: number) {
+  return (micros / 1_000_000).toFixed(2);
+}
+
+function formatNumber(n: number) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
+function formatPercent(n: number) {
+  return `${(n * 100).toFixed(2)}%`;
+}
+
+function formatStatus(s: string) {
+  const map: Record<string, string> = {
+    '2': 'Enabled',
+    '3': 'Paused',
+    '4': 'Removed',
+    ENABLED: 'Enabled',
+    PAUSED: 'Paused',
+    REMOVED: 'Removed',
+  };
+  return map[s] ?? s;
+}
+
+function formatChannelType(s: string) {
+  const map: Record<string, string> = {
+    '2': 'Search',
+    '3': 'Display',
+    '4': 'Shopping',
+    '6': 'Video',
+    '8': 'App',
+    '9': 'Smart',
+    '10': 'Hotel',
+    '11': 'Discovery',
+    '12': 'Local Services',
+    '13': 'Performance Max',
+    SEARCH: 'Search',
+    DISPLAY: 'Display',
+    SHOPPING: 'Shopping',
+    VIDEO: 'Video',
+    PERFORMANCE_MAX: 'PMax',
+  };
+  return map[s] ?? s;
+}
+
+// ─── Status Config ────────────────────────────────────────────────────────────
+
+const statusConfig: Record<PlatformConnectionStatus, { label: string; badgeVariant: 'ok' | 'warn' | 'danger' | 'default'; dot: string }> = {
   connected: { label: 'Connected', badgeVariant: 'ok', dot: 'bg-brand-success' },
   partial: { label: 'Partial', badgeVariant: 'warn', dot: 'bg-brand-warning' },
   disconnected: { label: 'Not Connected', badgeVariant: 'danger', dot: 'bg-brand-danger' },
@@ -630,6 +462,8 @@ const capabilityStatusIcon: Record<CapabilityStatus, React.ElementType> = {
   planned: Circle,
   unavailable: Circle,
 };
+
+// ─── Sub-Components ───────────────────────────────────────────────────────────
 
 function PlatformLogo({ platform }: { platform: Platform }) {
   const bgMap: Record<string, string> = {
@@ -708,28 +542,15 @@ function CapabilityGroupSection({ group }: { group: CapabilityGroup }) {
   );
 }
 
-function PlatformCard({
-  platform,
-  isActive,
-  onClick,
-}: {
-  platform: Platform;
-  isActive: boolean;
-  onClick: () => void;
-}) {
+function PlatformCard({ platform, isActive, onClick }: { platform: Platform; isActive: boolean; onClick: () => void }) {
   const sc = statusConfig[platform.status];
   const totalCaps = platform.capabilityGroups.reduce((a, g) => a + g.capabilities.length, 0);
-  const availableCaps = platform.capabilityGroups.reduce(
-    (a, g) => a + g.capabilities.filter(c => c.status === 'available').length,
-    0
-  );
+  const availableCaps = platform.capabilityGroups.reduce((a, g) => a + g.capabilities.filter(c => c.status === 'available').length, 0);
   return (
     <button
       onClick={onClick}
       className={`w-full text-left rounded-xl border px-4 py-3 transition-all ${
-        isActive
-          ? 'border-blue-500/60 bg-blue-500/5'
-          : 'border-brand-border bg-brand-card hover:border-brand-border-hover hover:bg-brand-sidebar-hover'
+        isActive ? 'border-blue-500/60 bg-blue-500/5' : 'border-brand-border bg-brand-card hover:border-brand-border-hover hover:bg-brand-sidebar-hover'
       }`}
     >
       <div className="flex items-center gap-3 mb-2">
@@ -747,26 +568,398 @@ function PlatformCard({
   );
 }
 
+// ─── Campaign List Component ──────────────────────────────────────────────────
+
+function CampaignTable({ campaigns, loading }: { campaigns: CampaignData[]; loading: boolean }) {
+  const [sortField, setSortField] = useState<'name' | 'impressions' | 'clicks' | 'cost' | 'conversions'>('impressions');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const sorted = [...campaigns].sort((a, b) => {
+    let av: number | string, bv: number | string;
+    switch (sortField) {
+      case 'name': av = a.name; bv = b.name; break;
+      case 'impressions': av = a.metrics.impressions; bv = b.metrics.impressions; break;
+      case 'clicks': av = a.metrics.clicks; bv = b.metrics.clicks; break;
+      case 'cost': av = a.metrics.costMicros; bv = b.metrics.costMicros; break;
+      case 'conversions': av = a.metrics.conversions; bv = b.metrics.conversions; break;
+      default: av = 0; bv = 0;
+    }
+    if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv as string) : (bv as string).localeCompare(av);
+    return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+  });
+
+  function toggleSort(field: typeof sortField) {
+    if (sortField === field) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortField(field); setSortDir('desc'); }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={24} className="animate-spin text-blue-400" />
+        <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from Google Ads...</span>
+      </div>
+    );
+  }
+
+  if (campaigns.length === 0) {
+    return (
+      <div className="text-center py-16">
+        <Megaphone size={32} className="mx-auto text-brand-text-dim mb-3" />
+        <p className="text-[14px] text-brand-text-muted mb-1">No campaigns found</p>
+        <p className="text-[12px] text-brand-text-dim">Create your first campaign or check the connected account.</p>
+      </div>
+    );
+  }
+
+  const SortHeader = ({ field, children }: { field: typeof sortField; children: React.ReactNode }) => (
+    <button onClick={() => toggleSort(field)} className="flex items-center gap-1 hover:text-brand-text transition-colors">
+      {children}
+      <ArrowUpDown size={11} className={sortField === field ? 'text-blue-400' : 'opacity-30'} />
+    </button>
+  );
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left">
+        <thead>
+          <tr className="border-b border-brand-border text-[11px] uppercase tracking-wider text-brand-text-muted">
+            <th className="pb-3 pr-4 font-medium"><SortHeader field="name">Campaign</SortHeader></th>
+            <th className="pb-3 px-3 font-medium">Status</th>
+            <th className="pb-3 px-3 font-medium">Type</th>
+            <th className="pb-3 px-3 font-medium text-right"><SortHeader field="impressions">Impressions</SortHeader></th>
+            <th className="pb-3 px-3 font-medium text-right"><SortHeader field="clicks">Clicks</SortHeader></th>
+            <th className="pb-3 px-3 font-medium text-right">CTR</th>
+            <th className="pb-3 px-3 font-medium text-right"><SortHeader field="cost">Spend</SortHeader></th>
+            <th className="pb-3 px-3 font-medium text-right"><SortHeader field="conversions">Conv.</SortHeader></th>
+            <th className="pb-3 pl-3 font-medium text-right">Budget/day</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map(c => {
+            const statusColor = formatStatus(c.status) === 'Enabled' ? 'text-emerald-400' : formatStatus(c.status) === 'Paused' ? 'text-amber-400' : 'text-brand-text-dim';
+            return (
+              <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-sidebar-hover/50 transition-colors">
+                <td className="py-3 pr-4">
+                  <div className="text-[13px] font-medium text-white max-w-[260px] truncate">{c.name}</div>
+                  <div className="text-[11px] text-brand-text-dim">ID: {c.id}</div>
+                </td>
+                <td className="py-3 px-3">
+                  <span className={`text-[12px] font-medium ${statusColor}`}>{formatStatus(c.status)}</span>
+                </td>
+                <td className="py-3 px-3">
+                  <span className="text-[12px] text-brand-text-muted">{formatChannelType(c.channelType)}</span>
+                </td>
+                <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.impressions)}</td>
+                <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.clicks)}</td>
+                <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">{formatPercent(c.metrics.ctr)}</td>
+                <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">${microsToDollars(c.metrics.costMicros)}</td>
+                <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{c.metrics.conversions.toFixed(1)}</td>
+                <td className="py-3 pl-3 text-right text-[13px] text-brand-text-muted tabular-nums">
+                  {c.budgetAmountMicros ? `$${microsToDollars(c.budgetAmountMicros)}` : '—'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Create Campaign Form ─────────────────────────────────────────────────────
+
+function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const [form, setForm] = useState<CreateCampaignInput>({
+    name: '',
+    channelType: 'SEARCH',
+    budgetAmountMicros: 10_000_000,
+    biddingStrategy: 'MAXIMIZE_CONVERSIONS',
+    startDate: new Date().toISOString().split('T')[0],
+    status: 'PAUSED',
+  });
+
+  function updateField<K extends keyof CreateCampaignInput>(key: K, value: CreateCampaignInput[K]) {
+    setForm(prev => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true);
+    setError(null);
+    setSuccess(false);
+
+    try {
+      const res = await fetch('/api/integrations/google-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create campaign');
+      setSuccess(true);
+      setForm(prev => ({ ...prev, name: '' }));
+      onCreated();
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-2 rounded-lg border border-dashed border-brand-border px-4 py-3 text-[13px] text-brand-text-muted hover:border-blue-500/40 hover:text-blue-400 transition-colors w-full"
+      >
+        <Plus size={16} /> Create a new campaign via API
+      </button>
+    );
+  }
+
+  const inputClass = 'w-full rounded-lg border border-brand-border bg-brand-bg px-3 py-2 text-[13px] text-white placeholder-brand-text-dim focus:border-blue-500/50 focus:outline-none transition-colors';
+  const labelClass = 'text-[11px] uppercase tracking-wider text-brand-text-muted font-medium mb-1.5 block';
+
+  return (
+    <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-[14px] font-semibold text-white">Create Campaign</h3>
+        <button onClick={() => setOpen(false)} className="text-[12px] text-brand-text-muted hover:text-white transition-colors">Cancel</button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Spring Sale – Search" value={form.name} onChange={e => updateField('name', e.target.value)} required />
+        </div>
+
+        <div>
+          <label className={labelClass}>Channel Type</label>
+          <select className={inputClass} value={form.channelType} onChange={e => updateField('channelType', e.target.value as any)}>
+            <option value="SEARCH">Search</option>
+            <option value="DISPLAY">Display</option>
+            <option value="SHOPPING">Shopping</option>
+            <option value="VIDEO">Video</option>
+            <option value="PERFORMANCE_MAX">Performance Max</option>
+          </select>
+        </div>
+
+        <div>
+          <label className={labelClass}>Bidding Strategy</label>
+          <select className={inputClass} value={form.biddingStrategy} onChange={e => updateField('biddingStrategy', e.target.value as any)}>
+            <option value="MAXIMIZE_CONVERSIONS">Maximize Conversions</option>
+            <option value="MAXIMIZE_CONVERSION_VALUE">Maximize Conv. Value</option>
+            <option value="TARGET_CPA">Target CPA</option>
+            <option value="TARGET_ROAS">Target ROAS</option>
+            <option value="MANUAL_CPC">Manual CPC</option>
+          </select>
+        </div>
+
+        <div>
+          <label className={labelClass}>Daily Budget (USD)</label>
+          <input
+            className={inputClass}
+            type="number"
+            min="1"
+            step="0.01"
+            value={form.budgetAmountMicros / 1_000_000}
+            onChange={e => updateField('budgetAmountMicros', Math.round(parseFloat(e.target.value || '0') * 1_000_000))}
+          />
+        </div>
+
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={form.status} onChange={e => updateField('status', e.target.value as any)}>
+            <option value="PAUSED">Paused (recommended)</option>
+            <option value="ENABLED">Enabled</option>
+          </select>
+        </div>
+
+        <div>
+          <label className={labelClass}>Start Date</label>
+          <input className={inputClass} type="date" value={form.startDate} onChange={e => updateField('startDate', e.target.value)} required />
+        </div>
+
+        <div>
+          <label className={labelClass}>End Date (optional)</label>
+          <input className={inputClass} type="date" value={form.endDate || ''} onChange={e => updateField('endDate', e.target.value || undefined)} />
+        </div>
+
+        {form.biddingStrategy === 'TARGET_CPA' && (
+          <div>
+            <label className={labelClass}>Target CPA (USD)</label>
+            <input className={inputClass} type="number" min="0.01" step="0.01" value={(form.targetCpaMicros || 0) / 1_000_000} onChange={e => updateField('targetCpaMicros', Math.round(parseFloat(e.target.value || '0') * 1_000_000))} />
+          </div>
+        )}
+
+        {form.biddingStrategy === 'TARGET_ROAS' && (
+          <div>
+            <label className={labelClass}>Target ROAS</label>
+            <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 4.0" value={form.targetRoas || ''} onChange={e => updateField('targetRoas', parseFloat(e.target.value || '0'))} />
+          </div>
+        )}
+
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5" disabled={creating || !form.name}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'platform';
+type Tab = 'overview' | 'platform' | 'google-ads';
 
 export default function IntegrationsPage() {
+  const searchParams = useSearchParams();
+
   const [tab, setTab] = useState<Tab>('overview');
   const [activePlatformId, setActivePlatformId] = useState<string>('google-ads');
 
+  // Google Ads live state
+  const [gadsStatus, setGadsStatus] = useState<GadsStatus>({ connected: false, step: 'disconnected' });
+  const [gadsLoading, setGadsLoading] = useState(true);
+  const [campaigns, setCampaigns] = useState<CampaignData[]>([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [connectingOAuth, setConnectingOAuth] = useState(false);
+
+  // Account selection
+  const [accessibleAccounts, setAccessibleAccounts] = useState<GoogleAdsAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [selectingAccount, setSelectingAccount] = useState<string | null>(null);
+
+  const fetchAccounts = useCallback(async () => {
+    setAccountsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/google-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed to fetch accounts');
+      const data = await res.json();
+      setAccessibleAccounts(data.accounts ?? []);
+    } catch {
+      setAccessibleAccounts([]);
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, []);
+
+  const checkConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/google-ads/status');
+      const data: GadsStatus = await res.json();
+      setGadsStatus(data);
+      if (data.step === 'connected') fetchCampaigns();
+      if (data.step === 'authenticated') fetchAccounts();
+    } catch {
+      setGadsStatus({ connected: false, step: 'disconnected' });
+    } finally {
+      setGadsLoading(false);
+    }
+  }, [fetchAccounts]);
+
+  const fetchCampaigns = useCallback(async () => {
+    setCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/google-ads/campaigns');
+      if (!res.ok) throw new Error('Failed to fetch');
+      const data = await res.json();
+      setCampaigns(data.campaigns ?? []);
+    } catch {
+      setCampaigns([]);
+    } finally {
+      setCampaignsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkConnection();
+  }, [checkConnection]);
+
+  useEffect(() => {
+    const step = searchParams.get('step');
+    if (step === 'select_account') {
+      setTab('google-ads');
+      checkConnection();
+    }
+    const connected = searchParams.get('connected');
+    if (connected === 'google-ads') {
+      setTab('google-ads');
+      checkConnection();
+    }
+    const error = searchParams.get('error');
+    if (error) {
+      console.error('OAuth error:', error);
+    }
+  }, [searchParams, checkConnection]);
+
+  async function handleGoogleConnect() {
+    setConnectingOAuth(true);
+    try {
+      const res = await fetch('/api/integrations/google-ads/auth');
+      const data = await res.json();
+      if (data.authUrl) {
+        window.location.href = data.authUrl;
+      }
+    } catch {
+      setConnectingOAuth(false);
+    }
+  }
+
+  async function handleSelectAccount(account: GoogleAdsAccount) {
+    setSelectingAccount(account.customerId);
+    try {
+      const res = await fetch('/api/integrations/google-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId: account.customerId, accountName: account.descriptiveName }),
+      });
+      if (!res.ok) throw new Error('Failed to select account');
+      await checkConnection();
+    } catch (err) {
+      console.error('Account selection error:', err);
+    } finally {
+      setSelectingAccount(null);
+    }
+  }
+
+  async function handleGoogleDisconnect() {
+    await fetch('/api/integrations/google-ads/disconnect', { method: 'POST' });
+    setGadsStatus({ connected: false, step: 'disconnected' });
+    setCampaigns([]);
+    setAccessibleAccounts([]);
+  }
+
+  // Build live platform list with real Google Ads status
+  const platforms = basePlatforms.map(p => {
+    if (p.id === 'google-ads' && gadsStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: gadsStatus.customerId, lastSync: gadsStatus.connectedAt };
+    }
+    return p;
+  });
+
   const activePlatform = platforms.find(p => p.id === activePlatformId)!;
   const totalCaps = platforms.reduce((a, p) => a + p.capabilityGroups.reduce((b, g) => b + g.capabilities.length, 0), 0);
-  const totalAvailable = platforms.reduce(
-    (a, p) => a + p.capabilityGroups.reduce((b, g) => b + g.capabilities.filter(c => c.status === 'available').length, 0),
-    0
-  );
+  const totalAvailable = platforms.reduce((a, p) => a + p.capabilityGroups.reduce((b, g) => b + g.capabilities.filter(c => c.status === 'available').length, 0), 0);
 
   const activePlatformTotalCaps = activePlatform.capabilityGroups.reduce((a, g) => a + g.capabilities.length, 0);
-  const activePlatformAvailableCaps = activePlatform.capabilityGroups.reduce(
-    (a, g) => a + g.capabilities.filter(c => c.status === 'available').length,
-    0
-  );
+  const activePlatformAvailableCaps = activePlatform.capabilityGroups.reduce((a, g) => a + g.capabilities.filter(c => c.status === 'available').length, 0);
+
+  // KPIs for campaigns
+  const totalImpressions = campaigns.reduce((a, c) => a + c.metrics.impressions, 0);
+  const totalClicks = campaigns.reduce((a, c) => a + c.metrics.clicks, 0);
+  const totalSpend = campaigns.reduce((a, c) => a + c.metrics.costMicros, 0);
+  const totalConversions = campaigns.reduce((a, c) => a + c.metrics.conversions, 0);
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -795,15 +988,17 @@ export default function IntegrationsPage() {
         {([
           { id: 'overview', label: 'Platform Overview' },
           { id: 'platform', label: 'Endpoint Explorer' },
-        ] as { id: Tab; label: string }[]).map(t => (
+          { id: 'google-ads', label: 'Google Ads', badge: gadsStatus.step !== 'disconnected' },
+        ] as { id: Tab; label: string; badge?: boolean }[]).map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`rounded-md px-4 py-2 text-[12px] font-medium transition-all ${
+            className={`rounded-md px-4 py-2 text-[12px] font-medium transition-all flex items-center gap-2 ${
               tab === t.id ? 'bg-blue-500 text-white' : 'text-brand-text-muted hover:text-white'
             }`}
           >
             {t.label}
+            {t.badge && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
           </button>
         ))}
       </div>
@@ -814,8 +1009,7 @@ export default function IntegrationsPage() {
           <div className="flex items-center justify-between">
             <h2 className="text-[14px] font-semibold text-white">Supported Ad Platforms</h2>
             <Button variant="default" className="flex items-center gap-1.5 text-[12px] h-8">
-              <Plus size={13} />
-              Request Platform
+              <Plus size={13} /> Request Platform
             </Button>
           </div>
 
@@ -825,6 +1019,7 @@ export default function IntegrationsPage() {
               const groupCount = p.capabilityGroups.length;
               const caps = p.capabilityGroups.reduce((a, g) => a + g.capabilities.filter(c => c.status === 'available').length, 0);
               const totalC = p.capabilityGroups.reduce((a, g) => a + g.capabilities.length, 0);
+              const isGoogle = p.id === 'google-ads';
               return (
                 <div key={p.id} className="rounded-xl border border-brand-border bg-brand-card p-4 flex flex-col gap-3">
                   <div className="flex items-center gap-3">
@@ -834,6 +1029,9 @@ export default function IntegrationsPage() {
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <span className={`h-1.5 w-1.5 rounded-full ${sc.dot}`} />
                         <span className="text-[11px] text-brand-text-muted">{sc.label}</span>
+                        {isGoogle && p.accountId && (
+                          <span className="text-[10px] text-brand-text-dim ml-1">ID: {p.accountId}</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -855,48 +1053,51 @@ export default function IntegrationsPage() {
                     <span className="text-[11px] text-brand-text-dim">{p.authType}</span>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => { setActivePlatformId(p.id); setTab('platform'); }}
+                        onClick={() => { setActivePlatformId(p.id); setTab(isGoogle && p.status === 'connected' ? 'google-ads' : 'platform'); }}
                         className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1"
                       >
                         <Info size={12} /> Explore
                       </button>
-                      <a
-                        href={p.docsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[11px] text-brand-text-muted hover:text-brand-text flex items-center gap-1"
-                      >
+                      <a href={p.docsUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-brand-text-muted hover:text-brand-text flex items-center gap-1">
                         <ExternalLink size={12} /> Docs
                       </a>
                     </div>
                   </div>
 
-                  <Button
-                    variant="default"
-                    className="w-full text-[12px] h-8 mt-1"
-                    disabled={p.status === 'connected'}
-                  >
-                    {p.status === 'connected' ? (
-                      <><RefreshCw size={12} className="mr-1.5" /> Re-sync</>
+                  {isGoogle ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('google-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handleGoogleDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
                     ) : (
-                      <><Plus size={12} className="mr-1.5" /> Connect</>
-                    )}
-                  </Button>
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleGoogleConnect} disabled={connectingOAuth || gadsLoading}>
+                        {connectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                      </Button>
+                    )
+                  ) : (
+                    <Button variant="default" className="w-full text-[12px] h-8 mt-1" disabled={p.status === 'connected'}>
+                      {p.status === 'connected' ? <><RefreshCw size={12} className="mr-1.5" /> Re-sync</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                    </Button>
+                  )}
                 </div>
               );
             })}
           </div>
 
-          {/* Integration architecture note */}
           <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-5 mt-2">
             <div className="flex gap-3">
               <Info size={16} className="text-blue-400 mt-0.5 shrink-0" />
               <div>
                 <div className="text-[13px] font-semibold text-white mb-1">Integration Architecture</div>
                 <p className="text-[12px] text-brand-text-muted leading-relaxed">
-                  All integrations use OAuth 2.0 authorization flows. After connecting, AINM stores encrypted refresh tokens 
-                  and exchanges them for short-lived access tokens per API call. Data is fetched via server-side Next.js API routes 
-                  (<code className="text-blue-400 text-[11px]">/api/integrations/[platform]/...</code>) to keep credentials 
+                  All integrations use OAuth 2.0 authorization flows. After connecting, AINM stores encrypted refresh tokens
+                  and exchanges them for short-lived access tokens per API call. Data is fetched via server-side Next.js API routes
+                  (<code className="text-blue-400 text-[11px]">/api/integrations/[platform]/...</code>) to keep credentials
                   server-side only. Webhooks and background jobs handle real-time sync and scheduled report pulls.
                 </p>
               </div>
@@ -908,32 +1109,22 @@ export default function IntegrationsPage() {
       {/* ── TAB: Endpoint Explorer ── */}
       {tab === 'platform' && (
         <div className="flex gap-5">
-          {/* Platform Selector */}
           <div className="w-[200px] shrink-0 flex flex-col gap-2">
             <div className="text-[11px] uppercase tracking-wider text-brand-text-dim font-medium mb-1 px-1">Select Platform</div>
             {platforms.map(p => (
-              <PlatformCard
-                key={p.id}
-                platform={p}
-                isActive={p.id === activePlatformId}
-                onClick={() => setActivePlatformId(p.id)}
-              />
+              <PlatformCard key={p.id} platform={p} isActive={p.id === activePlatformId} onClick={() => setActivePlatformId(p.id)} />
             ))}
           </div>
 
-          {/* Capability Detail Panel */}
           <div className="flex-1 min-w-0">
             <div className="rounded-xl border border-brand-border bg-brand-card p-5">
-              {/* Platform Header */}
               <div className="flex items-start justify-between gap-4 mb-5">
                 <div className="flex items-center gap-3">
                   <PlatformLogo platform={activePlatform} />
                   <div>
                     <div className="text-[16px] font-bold text-white">{activePlatform.name}</div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <Badge variant={statusConfig[activePlatform.status].badgeVariant}>
-                        {statusConfig[activePlatform.status].label}
-                      </Badge>
+                      <Badge variant={statusConfig[activePlatform.status].badgeVariant}>{statusConfig[activePlatform.status].label}</Badge>
                       <span className="text-[11px] text-brand-text-muted">{activePlatform.authType}</span>
                     </div>
                   </div>
@@ -943,23 +1134,28 @@ export default function IntegrationsPage() {
                     <div className="text-[20px] font-bold text-white">{activePlatformAvailableCaps}</div>
                     <div className="text-[10px] text-brand-text-dim">of {activePlatformTotalCaps} available</div>
                   </div>
-                  <a
-                    href={activePlatform.docsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 rounded-md border border-brand-border px-3 py-1.5 text-[11px] text-brand-text-muted hover:text-brand-text hover:border-brand-border-hover transition-colors"
-                  >
-                    <ExternalLink size={12} />
-                    API Docs
+                  <a href={activePlatform.docsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-md border border-brand-border px-3 py-1.5 text-[11px] text-brand-text-muted hover:text-brand-text hover:border-brand-border-hover transition-colors">
+                    <ExternalLink size={12} /> API Docs
                   </a>
-                  <Button variant="default" className="text-[12px] h-8">
-                    <Plus size={12} className="mr-1.5" />
-                    Connect
-                  </Button>
+                  {activePlatformId === 'google-ads' ? (
+                    gadsStatus.connected ? (
+                      <Button variant="default" className="text-[12px] h-8" onClick={() => setTab('google-ads')}>
+                        <BarChart2 size={12} className="mr-1.5" /> Campaigns
+                      </Button>
+                    ) : (
+                      <Button variant="default" className="text-[12px] h-8" onClick={handleGoogleConnect} disabled={connectingOAuth}>
+                        {connectingOAuth ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <Plus size={12} className="mr-1.5" />}
+                        Connect
+                      </Button>
+                    )
+                  ) : (
+                    <Button variant="default" className="text-[12px] h-8">
+                      <Plus size={12} className="mr-1.5" /> Connect
+                    </Button>
+                  )}
                 </div>
               </div>
 
-              {/* Legend */}
               <div className="flex items-center gap-4 mb-5 pb-4 border-b border-brand-border">
                 {([
                   { status: 'available', label: 'Available' },
@@ -978,7 +1174,6 @@ export default function IntegrationsPage() {
                 <span className="text-[11px] text-brand-text-dim ml-auto">Click any capability to see API endpoints</span>
               </div>
 
-              {/* Capability Groups */}
               <div className="flex flex-col gap-1">
                 {activePlatform.capabilityGroups.map(group => (
                   <CapabilityGroupSection key={group.group} group={group} />
@@ -986,6 +1181,241 @@ export default function IntegrationsPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── TAB: Google Ads ── */}
+      {tab === 'google-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* ── STEP INDICATOR ── */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Authorize', done: gadsStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Account', done: gadsStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: gadsStatus.step === 'connected' && campaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && gadsStatus.step === 'disconnected') ||
+                (step === 2 && gadsStatus.step === 'authenticated') ||
+                (step === 3 && gadsStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                      isCurrent ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                      'bg-brand-card text-brand-text-dim border border-brand-border'
+                    }`}>
+                      {done ? <CheckCircle2 size={14} /> : step}
+                    </div>
+                    <span className={`text-[12px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>
+                      {label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── STEP 1: Disconnected — Authorize ── */}
+          {gadsStatus.step === 'disconnected' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="p-8 flex flex-col items-center text-center max-w-lg mx-auto">
+                <div className="h-16 w-16 rounded-2xl bg-blue-600 flex items-center justify-center text-[22px] font-bold text-white mb-5">G</div>
+                <h3 className="text-[18px] font-bold text-white mb-2">Connect your Google Ads account</h3>
+                <p className="text-[13px] text-brand-text-muted mb-6 leading-relaxed">
+                  Sign in with Google to give AINM read and write access to your campaigns.
+                  You&apos;ll pick which account to connect in the next step.
+                </p>
+
+                <div className="flex flex-col gap-3 w-full mb-6">
+                  {[
+                    { icon: Eye, text: 'View all your campaigns, ad groups, and performance metrics' },
+                    { icon: Megaphone, text: 'Create and manage campaigns directly from AINM' },
+                    { icon: BarChart2, text: 'Pull real-time reporting data via GAQL queries' },
+                    { icon: Lock, text: 'Your credentials stay server-side — never exposed to the browser' },
+                  ].map(({ icon: Icon, text }) => (
+                    <div key={text} className="flex items-center gap-3 text-left rounded-lg bg-brand-bg border border-brand-border px-4 py-3">
+                      <Icon size={16} className="text-blue-400 shrink-0" />
+                      <span className="text-[12px] text-brand-text-muted">{text}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <Button variant="default" className="text-[13px] h-11 px-8" onClick={handleGoogleConnect} disabled={connectingOAuth || gadsLoading}>
+                  {connectingOAuth
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Redirecting to Google...</>
+                    : gadsLoading
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Checking connection...</>
+                    : <>Sign in with Google</>
+                  }
+                </Button>
+                <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 — you can revoke access anytime</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 2: Authenticated — Select Account ── */}
+          {gadsStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="border-b border-brand-border px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-[11px] font-bold text-white">G</div>
+                  <div className="flex-1">
+                    <h3 className="text-[15px] font-bold text-white">Select a Google Ads account</h3>
+                    <p className="text-[12px] text-brand-text-muted">Your Google account has access to the accounts below. Pick one to connect.</p>
+                  </div>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleGoogleDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Cancel
+                  </Button>
+                </div>
+              </div>
+
+              <div className="p-6">
+                {accountsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={24} className="animate-spin text-blue-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your Google Ads accounts...</span>
+                  </div>
+                ) : accessibleAccounts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertCircle size={32} className="mx-auto text-amber-400 mb-3" />
+                    <p className="text-[14px] text-white mb-1">No Google Ads accounts found</p>
+                    <p className="text-[12px] text-brand-text-muted mb-4">
+                      The Google account you signed in with doesn&apos;t have access to any Google Ads accounts.
+                      Make sure you&apos;re using the right Google account.
+                    </p>
+                    <div className="flex gap-2 justify-center">
+                      <Button variant="default" className="text-[12px] h-8" onClick={fetchAccounts}>
+                        <RefreshCw size={12} className="mr-1.5" /> Retry
+                      </Button>
+                      <Button variant="default" className="text-[12px] h-8" onClick={handleGoogleDisconnect}>
+                        Try another account
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {accessibleAccounts.map(account => (
+                      <button
+                        key={account.customerId}
+                        onClick={() => handleSelectAccount(account)}
+                        disabled={selectingAccount !== null}
+                        className="text-left rounded-xl border border-brand-border bg-brand-bg p-4 hover:border-blue-500/40 hover:bg-blue-500/5 transition-all group disabled:opacity-60"
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="h-9 w-9 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center">
+                            {account.manager
+                              ? <Users size={16} className="text-blue-400" />
+                              : <Megaphone size={16} className="text-blue-400" />
+                            }
+                          </div>
+                          {selectingAccount === account.customerId ? (
+                            <Loader2 size={16} className="animate-spin text-blue-400" />
+                          ) : (
+                            <ChevronRight size={16} className="text-brand-text-dim group-hover:text-blue-400 transition-colors" />
+                          )}
+                        </div>
+                        <div className="text-[14px] font-semibold text-white mb-1 truncate">
+                          {account.descriptiveName || `Account ${account.customerId}`}
+                        </div>
+                        <div className="text-[12px] text-brand-text-muted mb-2 font-mono">
+                          {account.customerId.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {account.currencyCode && (
+                            <span className="text-[11px] text-brand-text-dim">{account.currencyCode}</span>
+                          )}
+                          {account.timeZone && (
+                            <span className="text-[11px] text-brand-text-dim">{account.timeZone}</span>
+                          )}
+                          {account.manager && (
+                            <Badge variant="info">Manager</Badge>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 3: Connected — Campaign Dashboard ── */}
+          {gadsStatus.step === 'connected' && (
+            <>
+              {/* Connected header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-[11px] font-bold text-white">G</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[16px] font-bold text-white">
+                        {gadsStatus.accountName || 'Google Ads'}
+                      </h2>
+                      <Badge variant="ok">Connected</Badge>
+                    </div>
+                    <div className="text-[12px] text-brand-text-muted mt-0.5">
+                      ID: {gadsStatus.customerId?.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}
+                      {gadsStatus.connectedAt && <> &middot; Connected {new Date(gadsStatus.connectedAt).toLocaleDateString()}</>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="default" className="text-[12px] h-8" onClick={fetchCampaigns} disabled={campaignsLoading}>
+                    <RefreshCw size={12} className={`mr-1.5 ${campaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleGoogleDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Disconnect
+                  </Button>
+                </div>
+              </div>
+
+              {/* KPI cards */}
+              {campaigns.length > 0 && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  {[
+                    { label: 'Campaigns', value: campaigns.length.toString(), icon: Megaphone, color: 'text-blue-400' },
+                    { label: 'Impressions', value: formatNumber(totalImpressions), icon: Eye, color: 'text-purple-400' },
+                    { label: 'Clicks', value: formatNumber(totalClicks), icon: MousePointerClick, color: 'text-emerald-400' },
+                    { label: 'Spend', value: `$${microsToDollars(totalSpend)}`, icon: DollarSign, color: 'text-amber-400' },
+                    { label: 'Conversions', value: totalConversions.toFixed(1), icon: TrendingUp, color: 'text-rose-400' },
+                  ].map(({ label, value, icon: Icon, color }) => (
+                    <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon size={14} className={color} />
+                        <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                      </div>
+                      <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Campaign table */}
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[14px] font-semibold text-white">Campaigns (Last 30 Days)</h3>
+                  <span className="text-[11px] text-brand-text-dim">{campaigns.length} campaigns fetched via GAQL</span>
+                </div>
+                <CampaignTable campaigns={campaigns} loading={campaignsLoading} />
+              </div>
+
+              {/* Create campaign */}
+              <CreateCampaignForm onCreated={fetchCampaigns} />
+
+              {/* API info */}
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Fetch:</strong> <code className="text-blue-400">GET /api/integrations/google-ads/campaigns</code> — GAQL query against Google Ads API v18</p>
+                  <p><strong className="text-brand-text-muted">Create:</strong> <code className="text-blue-400">POST /api/integrations/google-ads/campaigns</code> — CampaignBudget + Campaign via MutateCampaigns</p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 with refresh token — credentials stored server-side only</p>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
