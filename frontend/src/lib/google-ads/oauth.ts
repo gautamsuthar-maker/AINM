@@ -22,11 +22,12 @@ export function getAuthUrl() {
     scope: SCOPES,
     prompt: 'consent',
     include_granted_scopes: true,
+    redirect_uri: getRedirectUri(),
   });
 }
 
 export async function exchangeCodeForTokens(code: string) {
   const client = getOAuth2Client();
-  const { tokens } = await client.getToken(code);
+  const { tokens } = await client.getToken({ code, redirect_uri: getRedirectUri() });
   return tokens;
 }

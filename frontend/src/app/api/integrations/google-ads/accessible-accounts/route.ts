@@ -4,7 +4,7 @@ import { getOAuth2Client } from '@/lib/google-ads/oauth';
 import { getGoogleAdsApi } from '@/lib/google-ads/client';
 import type { GoogleAdsAccount } from '@/lib/google-ads/types';
 
-const ADS_API_VERSION = 'v18';
+const ADS_API_VERSION = 'v20';
 
 export async function GET() {
   try {
