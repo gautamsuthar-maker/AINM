@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import type { CampaignData, ConnectionStatus as GadsStatus, CreateCampaignInput, GoogleAdsAccount } from '@/lib/google-ads/types';
 import type { LinkedInCampaign, LinkedInCampaignGroup, LinkedInCreative, LinkedInConnectionStatus as LiStatus, LinkedInAdAccount, CreateLinkedInCampaignInput, CreateCampaignGroupInput, CreateCreativeInput, TargetingCriteria } from '@/lib/linkedin-ads/types';
+import type { SnapchatConnectionStatus as SnapStatus, SnapchatAdAccount as SnapAdAccount, SnapchatCampaign, CreateSnapchatCampaignInput } from '@/lib/snapchat-ads/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -822,7 +823,7 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads';
+type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads';
 
 export default function IntegrationsPage() {
   const searchParams = useSearchParams();
@@ -1022,6 +1023,86 @@ export default function IntegrationsPage() {
     setLiAccounts([]);
   }
 
+  // ── Snapchat Ads state ───────────────────────────────────────────────────
+  const [snapStatus, setSnapStatus] = useState<SnapStatus>({ connected: false, step: 'disconnected' });
+  const [snapLoading, setSnapLoading] = useState(true);
+  const [snapCampaigns, setSnapCampaigns] = useState<SnapchatCampaign[]>([]);
+  const [snapCampaignsLoading, setSnapCampaignsLoading] = useState(false);
+  const [snapConnectingOAuth, setSnapConnectingOAuth] = useState(false);
+  const [snapAccounts, setSnapAccounts] = useState<SnapAdAccount[]>([]);
+  const [snapAccountsLoading, setSnapAccountsLoading] = useState(false);
+  const [snapSelectingAccount, setSnapSelectingAccount] = useState<string | null>(null);
+
+  const fetchSnapAccounts = useCallback(async () => {
+    setSnapAccountsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/snapchat-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setSnapAccounts(data.accounts ?? []);
+    } catch { setSnapAccounts([]); }
+    finally { setSnapAccountsLoading(false); }
+  }, []);
+
+  const checkSnapConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/snapchat-ads/status');
+      const data: SnapStatus = await res.json();
+      setSnapStatus(data);
+      if (data.step === 'connected') fetchSnapCampaigns();
+      if (data.step === 'authenticated') fetchSnapAccounts();
+    } catch { setSnapStatus({ connected: false, step: 'disconnected' }); }
+    finally { setSnapLoading(false); }
+  }, [fetchSnapAccounts]);
+
+  const fetchSnapCampaigns = useCallback(async () => {
+    setSnapCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/snapchat-ads/campaigns');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setSnapCampaigns(data.campaigns ?? []);
+    } catch { setSnapCampaigns([]); }
+    finally { setSnapCampaignsLoading(false); }
+  }, []);
+
+  useEffect(() => { checkSnapConnection(); }, [checkSnapConnection]);
+
+  useEffect(() => {
+    if (searchParams.get('snap_step') === 'select_account') { setTab('snapchat-ads'); checkSnapConnection(); }
+    if (searchParams.get('snap_error')) console.error('Snapchat OAuth error:', searchParams.get('snap_error'));
+  }, [searchParams, checkSnapConnection]);
+
+  async function handleSnapchatConnect() {
+    setSnapConnectingOAuth(true);
+    try {
+      const res = await fetch('/api/integrations/snapchat-ads/auth');
+      const data = await res.json();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch { setSnapConnectingOAuth(false); }
+  }
+
+  async function handleSnapSelectAccount(account: SnapAdAccount) {
+    setSnapSelectingAccount(account.id);
+    try {
+      const res = await fetch('/api/integrations/snapchat-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adAccountId: account.id, adAccountName: account.name }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await checkSnapConnection();
+    } catch (err) { console.error('Snapchat account selection error:', err); }
+    finally { setSnapSelectingAccount(null); }
+  }
+
+  async function handleSnapchatDisconnect() {
+    await fetch('/api/integrations/snapchat-ads/disconnect', { method: 'POST' });
+    setSnapStatus({ connected: false, step: 'disconnected' });
+    setSnapCampaigns([]);
+    setSnapAccounts([]);
+  }
+
   // Build live platform list with real connection statuses
   const platforms = basePlatforms.map(p => {
     if (p.id === 'google-ads' && gadsStatus.connected) {
@@ -1029,6 +1110,9 @@ export default function IntegrationsPage() {
     }
     if (p.id === 'linkedin-ads' && liStatus.connected) {
       return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: liStatus.accountId, lastSync: liStatus.connectedAt };
+    }
+    if (p.id === 'snapchat-ads' && snapStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: snapStatus.adAccountId, lastSync: snapStatus.connectedAt };
     }
     return p;
   });
@@ -1081,6 +1165,7 @@ export default function IntegrationsPage() {
           { id: 'platform', label: 'Endpoint Explorer' },
           { id: 'google-ads', label: 'Google Ads', badge: gadsStatus.step !== 'disconnected' },
           { id: 'linkedin-ads', label: 'LinkedIn Ads', badge: liStatus.step !== 'disconnected' },
+          { id: 'snapchat-ads', label: 'Snapchat Ads', badge: snapStatus.step !== 'disconnected' },
         ] as { id: Tab; label: string; badge?: boolean }[]).map(t => (
           <button
             key={t.id}
@@ -1149,6 +1234,7 @@ export default function IntegrationsPage() {
                           setActivePlatformId(p.id);
                           if (isGoogle && p.status === 'connected') setTab('google-ads');
                           else if (p.id === 'linkedin-ads' && p.status === 'connected') setTab('linkedin-ads');
+                          else if (p.id === 'snapchat-ads' && p.status === 'connected') setTab('snapchat-ads');
                           else setTab('platform');
                         }}
                         className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1"
@@ -1189,6 +1275,21 @@ export default function IntegrationsPage() {
                     ) : (
                       <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleLinkedInConnect} disabled={liConnectingOAuth || liLoading}>
                         {liConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                      </Button>
+                    )
+                  ) : p.id === 'snapchat-ads' ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('snapchat-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handleSnapchatDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleSnapchatConnect} disabled={snapConnectingOAuth || snapLoading}>
+                        {snapConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
                       </Button>
                     )
                   ) : (
@@ -1786,6 +1887,257 @@ export default function IntegrationsPage() {
           )}
         </div>
       )}
+
+      {/* ── TAB: Snapchat Ads ── */}
+      {tab === 'snapchat-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Authorize', done: snapStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Account', done: snapStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: snapStatus.step === 'connected' && snapCampaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && snapStatus.step === 'disconnected') ||
+                (step === 2 && snapStatus.step === 'authenticated') ||
+                (step === 3 && snapStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                      isCurrent ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
+                      'bg-brand-card text-brand-text-dim border border-brand-border'
+                    }`}>
+                      {done ? <CheckCircle2 size={14} /> : step}
+                    </div>
+                    <span className={`text-[12px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>
+                      {label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Authorize */}
+          {snapStatus.step === 'disconnected' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="p-8 flex flex-col items-center text-center max-w-lg mx-auto">
+                <div className="h-16 w-16 rounded-2xl flex items-center justify-center text-[22px] font-bold text-black mb-5" style={{ background: 'linear-gradient(135deg, #FFFC00 0%, #FFA600 100%)' }}>Sn</div>
+                <h3 className="text-[18px] font-bold text-white mb-2">Connect your Snapchat Ads account</h3>
+                <p className="text-[13px] text-brand-text-muted mb-6 leading-relaxed">
+                  Sign in with Snapchat to give AINM access to your advertising campaigns.
+                  You&apos;ll pick which ad account to connect in the next step.
+                </p>
+                <div className="flex flex-col gap-3 w-full mb-6">
+                  {[
+                    { icon: Eye, text: 'View all your Snap Ads, Story Ads, and Collection Ads campaigns' },
+                    { icon: Megaphone, text: 'Create and manage campaigns targeting Snapchat\'s young audience' },
+                    { icon: BarChart2, text: 'Pull swipe-ups, impressions, spend, and conversion data' },
+                    { icon: Lock, text: 'Your credentials stay server-side — never exposed to the browser' },
+                  ].map(({ icon: Icon, text }) => (
+                    <div key={text} className="flex items-center gap-3 text-left rounded-lg bg-brand-bg border border-brand-border px-4 py-3">
+                      <Icon size={16} className="text-yellow-400 shrink-0" />
+                      <span className="text-[12px] text-brand-text-muted">{text}</span>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="default" className="text-[13px] h-11 px-8" onClick={handleSnapchatConnect} disabled={snapConnectingOAuth || snapLoading}>
+                  {snapConnectingOAuth
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Redirecting to Snapchat...</>
+                    : snapLoading
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Checking connection...</>
+                    : <>Sign in with Snapchat</>
+                  }
+                </Button>
+                <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 — you can revoke access anytime from Snapchat settings</p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Select Account */}
+          {snapStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="border-b border-brand-border px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-bold text-black" style={{ background: 'linear-gradient(135deg, #FFFC00 0%, #FFA600 100%)' }}>Sn</div>
+                  <div className="flex-1">
+                    <h3 className="text-[15px] font-bold text-white">Select a Snapchat Ad Account</h3>
+                    <p className="text-[12px] text-brand-text-muted">Your Snapchat profile has access to the ad accounts below.</p>
+                  </div>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleSnapchatDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Cancel
+                  </Button>
+                </div>
+              </div>
+              <div className="p-6">
+                {snapAccountsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={24} className="animate-spin text-yellow-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your Snapchat Ad accounts...</span>
+                  </div>
+                ) : snapAccounts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertCircle size={32} className="mx-auto text-amber-400 mb-3" />
+                    <p className="text-[14px] text-white mb-1">No Snapchat Ad accounts found</p>
+                    <p className="text-[12px] text-brand-text-muted mb-4">Your Snapchat account doesn&apos;t have access to any ad accounts.</p>
+                    <div className="flex gap-2 justify-center">
+                      <Button variant="default" className="text-[12px] h-8" onClick={fetchSnapAccounts}><RefreshCw size={12} className="mr-1.5" /> Retry</Button>
+                      <Button variant="default" className="text-[12px] h-8" onClick={handleSnapchatDisconnect}>Try another account</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {snapAccounts.map(account => (
+                      <button key={account.id} onClick={() => handleSnapSelectAccount(account)} disabled={snapSelectingAccount !== null}
+                        className="text-left rounded-xl border border-brand-border bg-brand-bg p-4 hover:border-yellow-500/40 hover:bg-yellow-500/5 transition-all group disabled:opacity-60">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="h-9 w-9 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center">
+                            <Megaphone size={16} className="text-yellow-400" />
+                          </div>
+                          {snapSelectingAccount === account.id
+                            ? <Loader2 size={16} className="animate-spin text-yellow-400" />
+                            : <ChevronRight size={16} className="text-brand-text-dim group-hover:text-yellow-400 transition-colors" />
+                          }
+                        </div>
+                        <div className="text-[14px] font-semibold text-white mb-1 truncate">{account.name}</div>
+                        <div className="text-[12px] text-brand-text-muted mb-2 font-mono">ID: {account.id}</div>
+                        <div className="flex items-center gap-3">
+                          {account.currency && <span className="text-[11px] text-brand-text-dim">{account.currency}</span>}
+                          {account.timezone && <span className="text-[11px] text-brand-text-dim">{account.timezone}</span>}
+                          <Badge variant={account.status === 'ACTIVE' ? 'ok' : 'warn'}>{account.status}</Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Campaign Dashboard */}
+          {snapStatus.step === 'connected' && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-bold text-black" style={{ background: 'linear-gradient(135deg, #FFFC00 0%, #FFA600 100%)' }}>Sn</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[16px] font-bold text-white">{snapStatus.adAccountName || 'Snapchat Ads'}</h2>
+                      <Badge variant="ok">Connected</Badge>
+                    </div>
+                    <div className="text-[12px] text-brand-text-muted mt-0.5">
+                      Account ID: {snapStatus.adAccountId}
+                      {snapStatus.connectedAt && <> &middot; Connected {new Date(snapStatus.connectedAt).toLocaleDateString()}</>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="default" className="text-[12px] h-8" onClick={fetchSnapCampaigns} disabled={snapCampaignsLoading}>
+                    <RefreshCw size={12} className={`mr-1.5 ${snapCampaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleSnapchatDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Disconnect
+                  </Button>
+                </div>
+              </div>
+
+              {snapCampaigns.length > 0 && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  {[
+                    { label: 'Campaigns', value: snapCampaigns.length.toString(), icon: Megaphone, color: 'text-yellow-400' },
+                    { label: 'Impressions', value: formatNumber(snapCampaigns.reduce((a, c) => a + c.metrics.impressions, 0)), icon: Eye, color: 'text-purple-400' },
+                    { label: 'Swipe-Ups', value: formatNumber(snapCampaigns.reduce((a, c) => a + c.metrics.swipes, 0)), icon: MousePointerClick, color: 'text-emerald-400' },
+                    { label: 'Spend', value: `$${snapCampaigns.reduce((a, c) => a + c.metrics.spend, 0).toFixed(2)}`, icon: DollarSign, color: 'text-amber-400' },
+                    { label: 'Conversions', value: snapCampaigns.reduce((a, c) => a + c.metrics.conversions, 0).toFixed(0), icon: TrendingUp, color: 'text-rose-400' },
+                  ].map(({ label, value, icon: Icon, color }) => (
+                    <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon size={14} className={color} />
+                        <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                      </div>
+                      <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[14px] font-semibold text-white">Snapchat Campaigns (Last 30 Days)</h3>
+                  <span className="text-[11px] text-brand-text-dim">{snapCampaigns.length} campaigns</span>
+                </div>
+                {snapCampaignsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 size={24} className="animate-spin text-yellow-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from Snapchat...</span>
+                  </div>
+                ) : snapCampaigns.length === 0 ? (
+                  <div className="text-center py-16">
+                    <Megaphone size={32} className="mx-auto text-brand-text-dim mb-3" />
+                    <p className="text-[14px] text-brand-text-muted mb-1">No campaigns found</p>
+                    <p className="text-[12px] text-brand-text-dim">Create your first campaign or check the connected account.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-brand-border text-[11px] uppercase tracking-wider text-brand-text-muted">
+                          <th className="pb-3 pr-4 font-medium">Campaign</th>
+                          <th className="pb-3 px-3 font-medium">Status</th>
+                          <th className="pb-3 px-3 font-medium">Objective</th>
+                          <th className="pb-3 px-3 font-medium text-right">Impressions</th>
+                          <th className="pb-3 px-3 font-medium text-right">Swipe-Ups</th>
+                          <th className="pb-3 px-3 font-medium text-right">SUR</th>
+                          <th className="pb-3 px-3 font-medium text-right">Spend</th>
+                          <th className="pb-3 pl-3 font-medium text-right">Daily Budget</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {snapCampaigns.map(c => {
+                          const sc = c.status === 'ACTIVE' ? 'text-emerald-400' : c.status === 'PAUSED' ? 'text-amber-400' : 'text-brand-text-dim';
+                          return (
+                            <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-sidebar-hover/50 transition-colors">
+                              <td className="py-3 pr-4">
+                                <div className="text-[13px] font-medium text-white max-w-[260px] truncate">{c.name}</div>
+                                <div className="text-[11px] text-brand-text-dim">ID: {c.id}</div>
+                              </td>
+                              <td className="py-3 px-3"><span className={`text-[12px] font-medium ${sc}`}>{c.status}</span></td>
+                              <td className="py-3 px-3 text-[12px] text-brand-text-muted">{c.objective.replace(/_/g, ' ')}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.impressions)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.swipes)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">{formatPercent(c.metrics.swipe_up_rate)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">${c.metrics.spend.toFixed(2)}</td>
+                              <td className="py-3 pl-3 text-right text-[13px] text-brand-text-muted tabular-nums">
+                                {c.daily_budget_micro ? `$${(c.daily_budget_micro / 1_000_000).toFixed(2)}` : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <SnapchatCreateCampaignForm onCreated={fetchSnapCampaigns} />
+
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Campaigns:</strong> <code className="text-yellow-400">GET|POST /api/integrations/snapchat-ads/campaigns</code> — /v1/adaccounts/&#123;id&#125;/campaigns</p>
+                  <p><strong className="text-brand-text-muted">Accounts:</strong> <code className="text-yellow-400">GET /api/integrations/snapchat-ads/accessible-accounts</code> — /v1/organizations/&#123;id&#125;/adaccounts</p>
+                  <p><strong className="text-brand-text-muted">Stats:</strong> <code className="text-yellow-400">GET /v1/campaigns/&#123;id&#125;/stats</code> — granularity=TOTAL, last 30 days</p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 — access + refresh token via accounts.snapchat.com</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2249,6 +2601,113 @@ function LinkedInCreativesSection({ campaigns }: { campaigns: LinkedInCampaign[]
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Snapchat Create Campaign Form ────────────────────────────────────────────
+
+function SnapchatCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const [form, setForm] = useState<CreateSnapchatCampaignInput>({
+    name: '',
+    objective: 'DRIVE_WEBSITE_TRAFFIC',
+    status: 'PAUSED',
+  });
+
+  const [dailyBudgetDollars, setDailyBudgetDollars] = useState('');
+
+  function updateField<K extends keyof CreateSnapchatCampaignInput>(key: K, value: CreateSnapchatCampaignInput[K]) {
+    setForm(prev => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true); setError(null); setSuccess(false);
+    try {
+      const payload: CreateSnapchatCampaignInput = { ...form };
+      if (dailyBudgetDollars) {
+        payload.daily_budget_micro = Math.round(parseFloat(dailyBudgetDollars) * 1_000_000);
+      }
+
+      const res = await fetch('/api/integrations/snapchat-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create campaign');
+      setSuccess(true);
+      setForm(prev => ({ ...prev, name: '' }));
+      setDailyBudgetDollars('');
+      onCreated();
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err: any) { setError(err.message); }
+    finally { setCreating(false); }
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        className="flex items-center gap-2 rounded-lg border border-dashed border-brand-border px-4 py-3 text-[13px] text-brand-text-muted hover:border-yellow-500/40 hover:text-yellow-400 transition-colors w-full">
+        <Plus size={16} /> Create a new Snapchat campaign via API
+      </button>
+    );
+  }
+
+  const inputClass = 'w-full rounded-lg border border-brand-border bg-brand-bg px-3 py-2 text-[13px] text-white placeholder-brand-text-dim focus:border-yellow-500/50 focus:outline-none transition-colors';
+  const labelClass = 'text-[11px] uppercase tracking-wider text-brand-text-muted font-medium mb-1.5 block';
+
+  return (
+    <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-[14px] font-semibold text-white">Create Snapchat Campaign</h3>
+        <button onClick={() => setOpen(false)} className="text-[12px] text-brand-text-muted hover:text-white transition-colors">Cancel</button>
+      </div>
+      <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Summer Sale – Snap Audience" value={form.name} onChange={e => updateField('name', e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Objective</label>
+          <select className={inputClass} value={form.objective} onChange={e => updateField('objective', e.target.value as any)}>
+            <option value="BRAND_AWARENESS">Brand Awareness</option>
+            <option value="DRIVE_WEBSITE_TRAFFIC">Drive Website Traffic</option>
+            <option value="APP_INSTALL">App Install</option>
+            <option value="APP_ENGAGEMENT">App Engagement</option>
+            <option value="ENGAGE_CONSUMER">Engage Consumer</option>
+            <option value="LEAD_GENERATION">Lead Generation</option>
+            <option value="CATALOG_SALES">Catalog Sales</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={form.status} onChange={e => updateField('status', e.target.value as any)}>
+            <option value="PAUSED">Paused (recommended)</option>
+            <option value="ACTIVE">Active</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Daily Budget (USD, optional)</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 50.00" value={dailyBudgetDollars} onChange={e => setDailyBudgetDollars(e.target.value)} />
+        </div>
+        <div>
+          <label className={labelClass}>Start Time (optional)</label>
+          <input className={inputClass} type="datetime-local" value={form.start_time ? form.start_time.slice(0, 16) : ''} onChange={e => updateField('start_time', e.target.value ? new Date(e.target.value).toISOString() : undefined)} />
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5" disabled={creating || !form.name}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
     </div>
   );
 }
