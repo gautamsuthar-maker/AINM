@@ -38,6 +38,7 @@ import type { SnapchatConnectionStatus as SnapStatus, SnapchatAdAccount as SnapA
 import type { MicrosoftAdsConnectionStatus as MsStatus, MicrosoftAdsAccount as MsAdAccount, MicrosoftAdsCampaign as MsCampaign, CreateMicrosoftAdsCampaignInput } from '@/lib/microsoft-ads/types';
 import type { AmazonAdsConnectionStatus as AmzStatus, AmazonAdsProfile as AmzProfile, AmazonAdsCampaign as AmzCampaign, CreateAmazonAdsCampaignInput } from '@/lib/amazon-ads/types';
 import type { PinterestAdsConnectionStatus as PinStatus, PinterestAdAccount as PinAdAccount, PinterestCampaign as PinCampaign, CreatePinterestCampaignInput } from '@/lib/pinterest-ads/types';
+import type { TikTokConnectionStatus as TikStatus, TikTokAdvertiser as TikAdvertiser, TikTokCampaign as TikCampaign, CreateTikTokCampaignInput } from '@/lib/tiktok-ads/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -826,7 +827,7 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads' | 'microsoft-ads' | 'amazon-ads' | 'pinterest-ads';
+type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads' | 'microsoft-ads' | 'amazon-ads' | 'pinterest-ads' | 'tiktok-ads';
 
 function IntegrationsContent() {
   const searchParams = useSearchParams();
@@ -1352,6 +1353,86 @@ function IntegrationsContent() {
     setPinAccounts([]);
   }
 
+  // ── TikTok Ads state ─────────────────────────────────────────────────────
+  const [tikStatus, setTikStatus] = useState<TikStatus>({ connected: false, step: 'disconnected' });
+  const [tikLoading, setTikLoading] = useState(true);
+  const [tikCampaigns, setTikCampaigns] = useState<TikCampaign[]>([]);
+  const [tikCampaignsLoading, setTikCampaignsLoading] = useState(false);
+  const [tikConnectingOAuth, setTikConnectingOAuth] = useState(false);
+  const [tikAccounts, setTikAccounts] = useState<TikAdvertiser[]>([]);
+  const [tikAccountsLoading, setTikAccountsLoading] = useState(false);
+  const [tikSelectingAccount, setTikSelectingAccount] = useState<string | null>(null);
+
+  const fetchTikAccounts = useCallback(async () => {
+    setTikAccountsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/tiktok-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setTikAccounts(data.accounts ?? []);
+    } catch { setTikAccounts([]); }
+    finally { setTikAccountsLoading(false); }
+  }, []);
+
+  const checkTikConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/tiktok-ads/status');
+      const data: TikStatus = await res.json();
+      setTikStatus(data);
+      if (data.step === 'connected') fetchTikCampaigns();
+      if (data.step === 'authenticated') fetchTikAccounts();
+    } catch { setTikStatus({ connected: false, step: 'disconnected' }); }
+    finally { setTikLoading(false); }
+  }, [fetchTikAccounts]);
+
+  const fetchTikCampaigns = useCallback(async () => {
+    setTikCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/tiktok-ads/campaigns');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setTikCampaigns(data.campaigns ?? []);
+    } catch { setTikCampaigns([]); }
+    finally { setTikCampaignsLoading(false); }
+  }, []);
+
+  useEffect(() => { checkTikConnection(); }, [checkTikConnection]);
+
+  useEffect(() => {
+    if (searchParams.get('tiktok_step') === 'select_account') { setTab('tiktok-ads'); checkTikConnection(); }
+    if (searchParams.get('tiktok_error')) console.error('TikTok OAuth error:', searchParams.get('tiktok_error'));
+  }, [searchParams, checkTikConnection]);
+
+  async function handleTikTokConnect() {
+    setTikConnectingOAuth(true);
+    try {
+      const res = await fetch('/api/integrations/tiktok-ads/auth');
+      const data = await res.json();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch { setTikConnectingOAuth(false); }
+  }
+
+  async function handleTikSelectAccount(account: TikAdvertiser) {
+    setTikSelectingAccount(account.advertiser_id);
+    try {
+      const res = await fetch('/api/integrations/tiktok-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ advertiserId: account.advertiser_id, advertiserName: account.advertiser_name }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await checkTikConnection();
+    } catch (err) { console.error('TikTok account selection error:', err); }
+    finally { setTikSelectingAccount(null); }
+  }
+
+  async function handleTikTokDisconnect() {
+    await fetch('/api/integrations/tiktok-ads/disconnect', { method: 'POST' });
+    setTikStatus({ connected: false, step: 'disconnected' });
+    setTikCampaigns([]);
+    setTikAccounts([]);
+  }
+
   // Build live platform list with real connection statuses
   const platforms = basePlatforms.map(p => {
     if (p.id === 'google-ads' && gadsStatus.connected) {
@@ -1371,6 +1452,9 @@ function IntegrationsContent() {
     }
     if (p.id === 'pinterest-ads' && pinStatus.connected) {
       return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: pinStatus.adAccountId, lastSync: pinStatus.connectedAt };
+    }
+    if (p.id === 'tiktok-ads' && tikStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: tikStatus.advertiserId, lastSync: tikStatus.connectedAt };
     }
     return p;
   });
@@ -1427,6 +1511,7 @@ function IntegrationsContent() {
           { id: 'microsoft-ads', label: 'Microsoft Ads', badge: msStatus.step !== 'disconnected' },
           { id: 'amazon-ads', label: 'Amazon Ads', badge: amzStatus.step !== 'disconnected' },
           { id: 'pinterest-ads', label: 'Pinterest Ads', badge: pinStatus.step !== 'disconnected' },
+          { id: 'tiktok-ads', label: 'TikTok Ads', badge: tikStatus.step !== 'disconnected' },
         ] as { id: Tab; label: string; badge?: boolean }[]).map(t => (
           <button
             key={t.id}
@@ -1599,6 +1684,21 @@ function IntegrationsContent() {
                     ) : (
                       <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handlePinterestConnect} disabled={pinConnectingOAuth || pinLoading}>
                         {pinConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                      </Button>
+                    )
+                  ) : p.id === 'tiktok-ads' ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('tiktok-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handleTikTokDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleTikTokConnect} disabled={tikConnectingOAuth || tikLoading}>
+                        {tikConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
                       </Button>
                     )
                   ) : (
@@ -3210,6 +3310,256 @@ function IntegrationsContent() {
           )}
         </div>
       )}
+
+      {/* ── TAB: TikTok Ads ── */}
+      {tab === 'tiktok-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Authorize', done: tikStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Advertiser', done: tikStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: tikStatus.step === 'connected' && tikCampaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && tikStatus.step === 'disconnected') ||
+                (step === 2 && tikStatus.step === 'authenticated') ||
+                (step === 3 && tikStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                      isCurrent ? 'bg-[#ff0050]/20 text-[#ff0050] border border-[#ff0050]/30' :
+                      'bg-brand-card text-brand-text-dim border border-brand-border'
+                    }`}>
+                      {done ? <CheckCircle2 size={14} /> : step}
+                    </div>
+                    <span className={`text-[12px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>
+                      {label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Authorize */}
+          {tikStatus.step === 'disconnected' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="p-8 flex flex-col items-center text-center max-w-lg mx-auto">
+                <div className="h-16 w-16 rounded-2xl flex items-center justify-center text-[22px] font-bold text-white mb-5" style={{ background: 'linear-gradient(135deg, #010101 0%, #161823 100%)', border: '1px solid rgba(255,0,80,0.3)' }}>Tt</div>
+                <h3 className="text-[18px] font-bold text-white mb-2">Connect your TikTok Ads account</h3>
+                <p className="text-[13px] text-brand-text-muted mb-6 leading-relaxed">
+                  Sign in with TikTok Business to give AINM access to your advertising campaigns.
+                  You&apos;ll select which advertiser account to connect in the next step.
+                </p>
+                <div className="flex flex-col gap-3 w-full mb-6">
+                  {[
+                    { icon: Eye, text: 'View In-Feed Ads, TopView, Brand Takeover, and Spark Ads campaigns' },
+                    { icon: Megaphone, text: 'Create and manage campaigns targeting TikTok\'s massive global audience' },
+                    { icon: BarChart2, text: 'Pull impressions, clicks, spend, CTR, CPC, and conversion data' },
+                    { icon: Lock, text: 'Your credentials stay server-side — never exposed to the browser' },
+                  ].map(({ icon: Icon, text }) => (
+                    <div key={text} className="flex items-center gap-3 text-left rounded-lg bg-brand-bg border border-brand-border px-4 py-3">
+                      <Icon size={16} className="text-[#ff0050] shrink-0" />
+                      <span className="text-[12px] text-brand-text-muted">{text}</span>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="default" className="text-[13px] h-11 px-8" onClick={handleTikTokConnect} disabled={tikConnectingOAuth || tikLoading}>
+                  {tikConnectingOAuth
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Redirecting to TikTok...</>
+                    : tikLoading
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Checking connection...</>
+                    : <>Sign in with TikTok Business</>
+                  }
+                </Button>
+                <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 — you can revoke access anytime from TikTok Business Center</p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Select Advertiser */}
+          {tikStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="border-b border-brand-border px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-bold text-white" style={{ background: '#010101', border: '1px solid rgba(255,0,80,0.3)' }}>Tt</div>
+                  <div className="flex-1">
+                    <h3 className="text-[15px] font-bold text-white">Select a TikTok Advertiser Account</h3>
+                    <p className="text-[12px] text-brand-text-muted">Your TikTok Business account has access to the advertiser accounts below.</p>
+                  </div>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleTikTokDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Cancel
+                  </Button>
+                </div>
+              </div>
+              <div className="p-6">
+                {tikAccountsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={24} className="animate-spin text-[#ff0050]" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your TikTok advertiser accounts...</span>
+                  </div>
+                ) : tikAccounts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertCircle size={32} className="mx-auto text-amber-400 mb-3" />
+                    <p className="text-[14px] text-white mb-1">No TikTok advertiser accounts found</p>
+                    <p className="text-[12px] text-brand-text-muted mb-4">Your TikTok Business account doesn&apos;t have access to any advertiser accounts.</p>
+                    <div className="flex gap-2 justify-center">
+                      <Button variant="default" className="text-[12px] h-8" onClick={fetchTikAccounts}><RefreshCw size={12} className="mr-1.5" /> Retry</Button>
+                      <Button variant="default" className="text-[12px] h-8" onClick={handleTikTokDisconnect}>Try another account</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {tikAccounts.map(account => (
+                      <button key={account.advertiser_id} onClick={() => handleTikSelectAccount(account)} disabled={tikSelectingAccount !== null}
+                        className="text-left rounded-xl border border-brand-border bg-brand-bg p-4 hover:border-[#ff0050]/40 hover:bg-[#ff0050]/5 transition-all group disabled:opacity-60">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="h-9 w-9 rounded-lg bg-[#ff0050]/10 border border-[#ff0050]/20 flex items-center justify-center">
+                            <Megaphone size={16} className="text-[#ff0050]" />
+                          </div>
+                          {tikSelectingAccount === account.advertiser_id
+                            ? <Loader2 size={16} className="animate-spin text-[#ff0050]" />
+                            : <ChevronRight size={16} className="text-brand-text-dim group-hover:text-[#ff0050] transition-colors" />
+                          }
+                        </div>
+                        <div className="text-[14px] font-semibold text-white mb-1 truncate">{account.advertiser_name}</div>
+                        <div className="text-[12px] text-brand-text-muted mb-2 font-mono">ID: {account.advertiser_id}</div>
+                        <div className="flex items-center gap-3">
+                          {account.currency && <span className="text-[11px] text-brand-text-dim">{account.currency}</span>}
+                          {account.timezone && <span className="text-[11px] text-brand-text-dim">{account.timezone}</span>}
+                          <Badge variant={account.status === 'STATUS_ENABLE' ? 'ok' : 'warn'}>{account.status.replace('STATUS_', '')}</Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Campaign Dashboard */}
+          {tikStatus.step === 'connected' && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-bold text-white" style={{ background: '#010101', border: '1px solid rgba(255,0,80,0.3)' }}>Tt</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[16px] font-bold text-white">{tikStatus.advertiserName || 'TikTok Ads'}</h2>
+                      <Badge variant="ok">Connected</Badge>
+                    </div>
+                    <div className="text-[12px] text-brand-text-muted mt-0.5">
+                      Advertiser ID: {tikStatus.advertiserId}
+                      {tikStatus.connectedAt && <> &middot; Connected {new Date(tikStatus.connectedAt).toLocaleDateString()}</>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="default" className="text-[12px] h-8" onClick={fetchTikCampaigns} disabled={tikCampaignsLoading}>
+                    <RefreshCw size={12} className={`mr-1.5 ${tikCampaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleTikTokDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Disconnect
+                  </Button>
+                </div>
+              </div>
+
+              {tikCampaigns.length > 0 && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  {[
+                    { label: 'Campaigns', value: tikCampaigns.length.toString(), icon: Megaphone, color: 'text-[#ff0050]' },
+                    { label: 'Impressions', value: formatNumber(tikCampaigns.reduce((a, c) => a + c.metrics.impressions, 0)), icon: Eye, color: 'text-purple-400' },
+                    { label: 'Clicks', value: formatNumber(tikCampaigns.reduce((a, c) => a + c.metrics.clicks, 0)), icon: MousePointerClick, color: 'text-emerald-400' },
+                    { label: 'Spend', value: `$${tikCampaigns.reduce((a, c) => a + c.metrics.spend, 0).toFixed(2)}`, icon: DollarSign, color: 'text-amber-400' },
+                    { label: 'Conversions', value: tikCampaigns.reduce((a, c) => a + c.metrics.conversions, 0).toFixed(0), icon: TrendingUp, color: 'text-rose-400' },
+                  ].map(({ label, value, icon: Icon, color }) => (
+                    <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon size={14} className={color} />
+                        <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                      </div>
+                      <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[14px] font-semibold text-white">TikTok Campaigns (Last 30 Days)</h3>
+                  <span className="text-[11px] text-brand-text-dim">{tikCampaigns.length} campaigns</span>
+                </div>
+                {tikCampaignsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 size={24} className="animate-spin text-[#ff0050]" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from TikTok...</span>
+                  </div>
+                ) : tikCampaigns.length === 0 ? (
+                  <div className="text-center py-16">
+                    <Megaphone size={32} className="mx-auto text-brand-text-dim mb-3" />
+                    <p className="text-[14px] text-brand-text-muted mb-1">No campaigns found</p>
+                    <p className="text-[12px] text-brand-text-dim">Create your first campaign or check the connected account.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-brand-border text-[11px] uppercase tracking-wider text-brand-text-muted">
+                          <th className="pb-3 pr-4 font-medium">Campaign</th>
+                          <th className="pb-3 px-3 font-medium">Status</th>
+                          <th className="pb-3 px-3 font-medium">Objective</th>
+                          <th className="pb-3 px-3 font-medium text-right">Impressions</th>
+                          <th className="pb-3 px-3 font-medium text-right">Clicks</th>
+                          <th className="pb-3 px-3 font-medium text-right">CTR</th>
+                          <th className="pb-3 px-3 font-medium text-right">CPC</th>
+                          <th className="pb-3 pl-3 font-medium text-right">Spend</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tikCampaigns.map(c => {
+                          const sc = c.status === 'CAMPAIGN_STATUS_ENABLE' ? 'text-emerald-400' : c.status === 'CAMPAIGN_STATUS_DISABLE' ? 'text-amber-400' : 'text-brand-text-dim';
+                          const statusLabel = c.status.replace('CAMPAIGN_STATUS_', '');
+                          return (
+                            <tr key={c.campaign_id} className="border-b border-brand-border/50 hover:bg-brand-sidebar-hover/50 transition-colors">
+                              <td className="py-3 pr-4">
+                                <div className="text-[13px] font-medium text-white max-w-[260px] truncate">{c.campaign_name}</div>
+                                <div className="text-[11px] text-brand-text-dim">ID: {c.campaign_id}</div>
+                              </td>
+                              <td className="py-3 px-3"><span className={`text-[12px] font-medium ${sc}`}>{statusLabel}</span></td>
+                              <td className="py-3 px-3 text-[12px] text-brand-text-muted">{c.objective_type.replace(/_/g, ' ')}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.impressions)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.clicks)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">{formatPercent(c.metrics.ctr / 100)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">${c.metrics.cpc.toFixed(2)}</td>
+                              <td className="py-3 pl-3 text-right text-[13px] text-white tabular-nums">${c.metrics.spend.toFixed(2)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <TikTokCreateCampaignForm onCreated={fetchTikCampaigns} />
+
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Campaigns:</strong> <code className="text-[#ff0050]">GET|POST /api/integrations/tiktok-ads/campaigns</code> — /v1.3/campaign/get/ & /campaign/create/</p>
+                  <p><strong className="text-brand-text-muted">Advertisers:</strong> <code className="text-[#ff0050]">GET /api/integrations/tiktok-ads/accessible-accounts</code> — /v1.3/oauth2/advertiser/get/</p>
+                  <p><strong className="text-brand-text-muted">Reports:</strong> <code className="text-[#ff0050]">POST /v1.3/report/integrated/get/</code> — BASIC report, last 30 days</p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 — long-lived access token (1 year) via business-api.tiktok.com</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -4100,6 +4450,119 @@ function PinterestCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
         </div>
         <div className="sm:col-span-2 flex items-center gap-3 pt-2">
           <Button type="submit" variant="default" className="text-[12px] h-9 px-5" disabled={creating || !form.name}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── TikTok Create Campaign Form ──────────────────────────────────────────────
+
+function TikTokCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [form, setForm] = useState<{
+    campaign_name: string;
+    objective_type: 'REACH' | 'TRAFFIC' | 'VIDEO_VIEWS' | 'LEAD_GENERATION' | 'APP_PROMOTION' | 'WEB_CONVERSIONS' | 'PRODUCT_SALES';
+    budget_mode: 'BUDGET_MODE_TOTAL' | 'BUDGET_MODE_DAY' | 'BUDGET_MODE_INFINITE';
+    operation_status: 'ENABLE' | 'DISABLE';
+    budget?: number;
+  }>({
+    campaign_name: '',
+    objective_type: 'TRAFFIC',
+    budget_mode: 'BUDGET_MODE_DAY',
+    operation_status: 'DISABLE',
+  });
+  const [budgetInput, setBudgetInput] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  function updateField<K extends keyof typeof form>(key: K, value: typeof form[K]) {
+    setForm(f => ({ ...f, [key]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true);
+    setError('');
+    setSuccess(false);
+    try {
+      const payload: any = { ...form };
+      if (budgetInput && form.budget_mode !== 'BUDGET_MODE_INFINITE') {
+        payload.budget = parseFloat(budgetInput);
+      } else {
+        delete payload.budget;
+      }
+      const res = await fetch('/api/integrations/tiktok-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || 'Failed to create campaign');
+      }
+      setSuccess(true);
+      setForm({ campaign_name: '', objective_type: 'TRAFFIC', budget_mode: 'BUDGET_MODE_DAY', operation_status: 'DISABLE' });
+      setBudgetInput('');
+      onCreated();
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const inputClass = 'w-full rounded-lg border border-brand-border bg-brand-bg px-3 py-2 text-[13px] text-white placeholder-brand-text-dim focus:border-[#ff0050]/50 focus:outline-none transition-colors';
+  const labelClass = 'text-[11px] uppercase tracking-wider text-brand-text-muted font-medium mb-1.5 block';
+
+  return (
+    <div className="rounded-xl border border-[#ff0050]/20 bg-[#ff0050]/5 p-5">
+      <h3 className="text-[14px] font-semibold text-white mb-4">Create TikTok Campaign</h3>
+      <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Summer Brand Awareness – TikTok" value={form.campaign_name} onChange={e => updateField('campaign_name', e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Objective</label>
+          <select className={inputClass} value={form.objective_type} onChange={e => updateField('objective_type', e.target.value as any)}>
+            <option value="REACH">Reach</option>
+            <option value="TRAFFIC">Traffic</option>
+            <option value="VIDEO_VIEWS">Video Views</option>
+            <option value="LEAD_GENERATION">Lead Generation</option>
+            <option value="APP_PROMOTION">App Promotion</option>
+            <option value="WEB_CONVERSIONS">Web Conversions</option>
+            <option value="PRODUCT_SALES">Product Sales</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Budget Mode</label>
+          <select className={inputClass} value={form.budget_mode} onChange={e => updateField('budget_mode', e.target.value as any)}>
+            <option value="BUDGET_MODE_DAY">Daily Budget</option>
+            <option value="BUDGET_MODE_TOTAL">Lifetime Budget</option>
+            <option value="BUDGET_MODE_INFINITE">No Budget Limit</option>
+          </select>
+        </div>
+        {form.budget_mode !== 'BUDGET_MODE_INFINITE' && (
+          <div>
+            <label className={labelClass}>Budget (USD)</label>
+            <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 50.00" value={budgetInput} onChange={e => setBudgetInput(e.target.value)} />
+          </div>
+        )}
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={form.operation_status} onChange={e => updateField('operation_status', e.target.value as any)}>
+            <option value="DISABLE">Disabled (recommended)</option>
+            <option value="ENABLE">Active</option>
+          </select>
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5" disabled={creating || !form.campaign_name}>
             {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
           </Button>
           {error && <span className="text-[12px] text-red-400">{error}</span>}
