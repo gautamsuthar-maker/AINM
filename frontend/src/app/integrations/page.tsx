@@ -43,6 +43,7 @@ import type { XAdsConnectionStatus as XStatus, XAdAccount, XAdsCampaign as XCamp
 import type { RedditAdsConnectionStatus as RdStatus, RedditAdAccount as RdAdAccount, RedditAdsCampaign as RdCampaign, CreateRedditAdsCampaignInput } from '@/lib/reddit-ads/types';
 import type { AppleSearchAdsConnectionStatus as AplStatus, AppleSearchAdsOrg as AplOrg, AppleSearchAdsCampaign as AplCampaign, CreateAppleSearchAdsCampaignInput } from '@/lib/apple-search-ads/types';
 import type { FlipkartAdsConnectionStatus as FkStatus, FlipkartAdvertiser as FkAdvertiser, FlipkartAdsCampaign as FkCampaign, CreateFlipkartAdsCampaignInput } from '@/lib/flipkart-ads/types';
+import type { MetaAdsConnectionStatus as MetaStatus, MetaAdAccount, MetaAdsCampaign as MetaCampaign, CreateMetaAdsCampaignInput } from '@/lib/meta-ads/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -974,7 +975,7 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads' | 'microsoft-ads' | 'amazon-ads' | 'pinterest-ads' | 'tiktok-ads' | 'x-ads' | 'reddit-ads' | 'apple-search-ads' | 'flipkart-ads';
+type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads' | 'microsoft-ads' | 'amazon-ads' | 'pinterest-ads' | 'tiktok-ads' | 'x-ads' | 'reddit-ads' | 'apple-search-ads' | 'flipkart-ads' | 'meta-ads';
 
 function IntegrationsContent() {
   const searchParams = useSearchParams();
@@ -1901,6 +1902,86 @@ function IntegrationsContent() {
     setFkAdvertisers([]);
   }
 
+  // ── Meta Ads state ───────────────────────────────────────────────────────
+  const [metaStatus, setMetaStatus] = useState<MetaStatus>({ connected: false, step: 'disconnected' });
+  const [metaLoading, setMetaLoading] = useState(true);
+  const [metaCampaigns, setMetaCampaigns] = useState<MetaCampaign[]>([]);
+  const [metaCampaignsLoading, setMetaCampaignsLoading] = useState(false);
+  const [metaConnectingOAuth, setMetaConnectingOAuth] = useState(false);
+  const [metaAccounts, setMetaAccounts] = useState<MetaAdAccount[]>([]);
+  const [metaAccountsLoading, setMetaAccountsLoading] = useState(false);
+  const [metaSelectingAccount, setMetaSelectingAccount] = useState<string | null>(null);
+
+  const fetchMetaAccounts = useCallback(async () => {
+    setMetaAccountsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/meta-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setMetaAccounts(data.accounts ?? []);
+    } catch { setMetaAccounts([]); }
+    finally { setMetaAccountsLoading(false); }
+  }, []);
+
+  const checkMetaConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/meta-ads/status');
+      const data: MetaStatus = await res.json();
+      setMetaStatus(data);
+      if (data.step === 'connected') fetchMetaCampaigns();
+      if (data.step === 'authenticated') fetchMetaAccounts();
+    } catch { setMetaStatus({ connected: false, step: 'disconnected' }); }
+    finally { setMetaLoading(false); }
+  }, [fetchMetaAccounts]);
+
+  const fetchMetaCampaigns = useCallback(async () => {
+    setMetaCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/meta-ads/campaigns');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setMetaCampaigns(data.campaigns ?? []);
+    } catch { setMetaCampaigns([]); }
+    finally { setMetaCampaignsLoading(false); }
+  }, []);
+
+  useEffect(() => { checkMetaConnection(); }, [checkMetaConnection]);
+
+  useEffect(() => {
+    if (searchParams.get('meta_step') === 'select_account') { setTab('meta-ads'); checkMetaConnection(); }
+    if (searchParams.get('meta_error')) console.error('Meta Ads OAuth error:', searchParams.get('meta_error'));
+  }, [searchParams, checkMetaConnection]);
+
+  async function handleMetaConnect() {
+    setMetaConnectingOAuth(true);
+    try {
+      const res = await fetch('/api/integrations/meta-ads/auth');
+      const data = await res.json();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch { setMetaConnectingOAuth(false); }
+  }
+
+  async function handleMetaSelectAccount(account: MetaAdAccount) {
+    setMetaSelectingAccount(account.id);
+    try {
+      const res = await fetch('/api/integrations/meta-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adAccountId: account.id, adAccountName: account.name }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await checkMetaConnection();
+    } catch (err) { console.error('Meta Ads account selection error:', err); }
+    finally { setMetaSelectingAccount(null); }
+  }
+
+  async function handleMetaDisconnect() {
+    await fetch('/api/integrations/meta-ads/disconnect', { method: 'POST' });
+    setMetaStatus({ connected: false, step: 'disconnected' });
+    setMetaCampaigns([]);
+    setMetaAccounts([]);
+  }
+
   // Build live platform list with real connection statuses
   const platforms = basePlatforms.map(p => {
     if (p.id === 'google-ads' && gadsStatus.connected) {
@@ -1935,6 +2016,9 @@ function IntegrationsContent() {
     }
     if (p.id === 'flipkart-ads' && fkStatus.connected) {
       return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: fkStatus.advertiserId, lastSync: fkStatus.connectedAt };
+    }
+    if (p.id === 'meta-ads' && metaStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: metaStatus.adAccountId, lastSync: metaStatus.connectedAt };
     }
     return p;
   });
@@ -1996,6 +2080,7 @@ function IntegrationsContent() {
           { id: 'reddit-ads', label: 'Reddit Ads', badge: rdStatus.step !== 'disconnected' },
           { id: 'apple-search-ads', label: 'Apple Search Ads', badge: aplStatus.step !== 'disconnected' },
           { id: 'flipkart-ads', label: 'Flipkart Ads', badge: fkStatus.step !== 'disconnected' },
+          { id: 'meta-ads', label: 'Meta Ads', badge: metaStatus.step !== 'disconnected' },
         ] as { id: Tab; label: string; badge?: boolean }[]).map(t => (
           <button
             key={t.id}
@@ -2243,6 +2328,21 @@ function IntegrationsContent() {
                     ) : (
                       <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleFkConnect} disabled={fkConnectingOAuth || fkLoading}>
                         {fkConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                      </Button>
+                    )
+                  ) : p.id === 'meta-ads' ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('meta-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handleMetaDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleMetaConnect} disabled={metaConnectingOAuth || metaLoading}>
+                        {metaConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
                       </Button>
                     )
                   ) : (
@@ -5044,6 +5144,232 @@ function IntegrationsContent() {
           )}
         </div>
       )}
+
+      {/* ── TAB: Meta Ads ── */}
+      {tab === 'meta-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Authorize', done: metaStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Ad Account', done: metaStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: metaStatus.step === 'connected' && metaCampaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && metaStatus.step === 'disconnected') ||
+                (step === 2 && metaStatus.step === 'authenticated') ||
+                (step === 3 && metaStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500 text-white' : isCurrent ? 'bg-[#1877F2] text-white' : 'bg-brand-card border border-brand-border text-brand-text-dim'
+                    }`}>{done ? <CheckCircle2 size={13} /> : step}</div>
+                    <span className={`text-[11px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>{label}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Authorize */}
+          {metaStatus.step === 'disconnected' && !metaLoading && (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="h-16 w-16 rounded-2xl flex items-center justify-center mb-5 text-white text-2xl font-bold" style={{ background: '#1877F2' }}>
+                f
+              </div>
+              <h3 className="text-[18px] font-bold text-white mb-2">Connect your Meta Ads account</h3>
+              <p className="text-[13px] text-brand-text-muted mb-6 max-w-md">
+                Sign in with Facebook to give AINM access to your Meta advertising campaigns across Facebook, Instagram, Audience Network, and Messenger.
+              </p>
+              <ul className="text-[12px] text-brand-text-muted mb-8 space-y-2 text-left max-w-sm">
+                {[
+                  { icon: Megaphone, text: 'Create and manage campaigns across Facebook & Instagram' },
+                  { icon: Users, text: 'Build custom audiences and lookalikes from your customer data' },
+                  { icon: BarChart2, text: 'Track spend, ROAS, reach, CPM, CTR and conversion events' },
+                ].map(({ icon: Icon, text }) => (
+                  <li key={text} className="flex items-start gap-2">
+                    <Icon size={13} className="text-[#1877F2] mt-0.5 shrink-0" />
+                    <span>{text}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button variant="default" className="text-[13px] h-11 px-8 bg-[#1877F2] hover:bg-blue-700 border-0" onClick={handleMetaConnect} disabled={metaConnectingOAuth}>
+                {metaConnectingOAuth
+                  ? <><Loader2 size={14} className="animate-spin mr-2" /> Redirecting to Meta...</>
+                  : <>Continue with Facebook</>}
+              </Button>
+              <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 — long-lived access token (60 days), auto-refreshed before expiry</p>
+            </div>
+          )}
+
+          {/* Step 2: Select Ad Account */}
+          {metaStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-[15px] font-bold text-white">Select a Meta Ad Account</h3>
+                  <p className="text-[12px] text-brand-text-muted">Your Facebook account has access to the ad accounts below.</p>
+                </div>
+                <Button variant="default" className="text-[12px] h-8" onClick={handleMetaDisconnect}>
+                  <Unplug size={12} className="mr-1.5" /> Disconnect
+                </Button>
+              </div>
+              {metaAccountsLoading ? (
+                <div className="flex items-center py-6">
+                  <Loader2 size={16} className="animate-spin text-[#1877F2]" />
+                  <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your Meta ad accounts...</span>
+                </div>
+              ) : metaAccounts.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-[14px] text-white mb-1">No ad accounts found</p>
+                  <p className="text-[12px] text-brand-text-muted mb-4">Your Facebook account doesn&apos;t have access to any ad accounts.</p>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleMetaDisconnect}>Try another account</Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {metaAccounts.map(acc => (
+                    <div key={acc.id} className="flex items-center justify-between p-3 rounded-lg border border-brand-border hover:border-blue-500/30 transition-colors">
+                      <div>
+                        <div className="text-[13px] font-semibold text-white">{acc.name}</div>
+                        <div className="text-[11px] text-brand-text-muted">ID: {acc.id} · {acc.currency} · {acc.timezone}</div>
+                        <div className="text-[11px] mt-0.5">
+                          <Badge variant={acc.status === 1 ? 'success' : 'default'} className="text-[10px] h-4">
+                            {acc.status === 1 ? 'Active' : acc.status === 2 ? 'Disabled' : 'Unsettled'}
+                          </Badge>
+                        </div>
+                      </div>
+                      <Button variant="default" className="text-[12px] h-8 px-4 bg-[#1877F2] hover:bg-blue-700 border-0" onClick={() => handleMetaSelectAccount(acc)} disabled={metaSelectingAccount === acc.id}>
+                        {metaSelectingAccount === acc.id ? <Loader2 size={12} className="animate-spin" /> : 'Select'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 3: Connected */}
+          {metaStatus.step === 'connected' && (
+            <>
+              {/* Account header */}
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl flex items-center justify-center text-white font-bold text-lg" style={{ background: '#1877F2' }}>
+                      f
+                    </div>
+                    <div>
+                      <h2 className="text-[16px] font-bold text-white">{metaStatus.adAccountName || 'Meta Ads'}</h2>
+                      <p className="text-[12px] text-brand-text-muted">Ad Account: {metaStatus.adAccountId}</p>
+                    </div>
+                    <Badge variant="success" className="text-[10px] h-5">Connected</Badge>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="default" className="text-[12px] h-8" onClick={fetchMetaCampaigns} disabled={metaCampaignsLoading}>
+                      <RefreshCw size={12} className={`mr-1.5 ${metaCampaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                    </Button>
+                    <Button variant="default" className="text-[12px] h-8" onClick={handleMetaDisconnect}>
+                      <Unplug size={12} className="mr-1.5" /> Disconnect
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* KPIs */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {[
+                  { label: 'Campaigns', value: metaCampaigns.length.toString(), icon: Megaphone, color: 'text-[#1877F2]' },
+                  { label: 'Impressions', value: metaCampaigns.reduce((a, c) => a + c.metrics.impressions, 0).toLocaleString(), icon: Eye, color: 'text-purple-400' },
+                  { label: 'Reach', value: metaCampaigns.reduce((a, c) => a + c.metrics.reach, 0).toLocaleString(), icon: Users, color: 'text-blue-400' },
+                  { label: 'Clicks', value: metaCampaigns.reduce((a, c) => a + c.metrics.clicks, 0).toLocaleString(), icon: MousePointerClick, color: 'text-emerald-400' },
+                  { label: 'Spend', value: `$${metaCampaigns.reduce((a, c) => a + c.metrics.spend, 0).toFixed(2)}`, icon: DollarSign, color: 'text-amber-400' },
+                ].map(({ label, value, icon: Icon, color }) => (
+                  <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Icon size={14} className={color} />
+                      <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                    </div>
+                    <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Campaigns table */}
+              <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+                <div className="flex items-center justify-between p-4 border-b border-brand-border">
+                  <h3 className="text-[14px] font-semibold text-white">Meta Campaigns (Last 30 Days)</h3>
+                  <Badge variant="default" className="text-[10px]">{metaCampaigns.length} campaign{metaCampaigns.length !== 1 ? 's' : ''}</Badge>
+                </div>
+                {metaCampaignsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={16} className="animate-spin text-[#1877F2]" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from Meta...</span>
+                  </div>
+                ) : metaCampaigns.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-[14px] text-white mb-1">No campaigns found</p>
+                    <p className="text-[12px] text-brand-text-muted">Create your first Meta campaign below.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[12px]">
+                      <thead>
+                        <tr className="border-b border-brand-border text-brand-text-dim text-left">
+                          <th className="px-4 py-3 font-medium">Campaign</th>
+                          <th className="px-4 py-3 font-medium">Objective</th>
+                          <th className="px-4 py-3 font-medium">Status</th>
+                          <th className="px-4 py-3 font-medium text-right">Reach</th>
+                          <th className="px-4 py-3 font-medium text-right">Impressions</th>
+                          <th className="px-4 py-3 font-medium text-right">Clicks</th>
+                          <th className="px-4 py-3 font-medium text-right">CTR</th>
+                          <th className="px-4 py-3 font-medium text-right">CPM</th>
+                          <th className="px-4 py-3 font-medium text-right">Spend</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {metaCampaigns.map(c => (
+                          <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-card-hover transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-white">{c.name}</div>
+                              {c.dailyBudget && <div className="text-brand-text-dim text-[11px]">Daily: ${c.dailyBudget.toFixed(2)}</div>}
+                            </td>
+                            <td className="px-4 py-3 text-brand-text-muted text-[11px]">{c.objective.replace('OUTCOME_', '')}</td>
+                            <td className="px-4 py-3">
+                              <Badge variant={c.status === 'ACTIVE' ? 'success' : 'default'} className="text-[10px] h-4">
+                                {c.status}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.reach.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.impressions.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.clicks.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.ctr.toFixed(2)}%</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">${c.metrics.cpm.toFixed(2)}</td>
+                            <td className="px-4 py-3 text-right font-medium text-white">${c.metrics.spend.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <MetaAdsCreateCampaignForm onCreated={fetchMetaCampaigns} />
+
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Campaigns:</strong> <code className="text-[#1877F2]">GET|POST /api/integrations/meta-ads/campaigns</code> — /v19.0/act_&#123;id&#125;/campaigns</p>
+                  <p><strong className="text-brand-text-muted">Ad Accounts:</strong> <code className="text-[#1877F2]">GET /api/integrations/meta-ads/accessible-accounts</code> — /v19.0/me/adaccounts</p>
+                  <p><strong className="text-brand-text-muted">Insights:</strong> <code className="text-[#1877F2]">GET /v19.0/act_&#123;id&#125;/insights</code> — date_preset=last_30_days, level=campaign</p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 — short-lived code → long-lived token (60 days) via graph.facebook.com/v19.0/oauth/access_token</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -6445,6 +6771,105 @@ function FlipkartAdsCreateCampaignForm({ onCreated }: { onCreated: () => void })
         </div>
         <div className="sm:col-span-2 flex items-center gap-3 pt-2">
           <Button type="submit" variant="default" className="text-[12px] h-9 px-5 bg-[#2874F0] hover:bg-blue-600 border-0" disabled={creating || !form.name || !budget}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── Meta Ads Create Campaign Form ───────────────────────────────────────────
+function MetaAdsCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [form, setForm] = useState<{
+    name: string;
+    objective: CreateMetaAdsCampaignInput['objective'];
+    status: 'ACTIVE' | 'PAUSED';
+  }>({ name: '', objective: 'OUTCOME_AWARENESS', status: 'PAUSED' });
+  const [dailyBudget, setDailyBudget] = useState('');
+  const [lifetimeBudget, setLifetimeBudget] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const updateField = (k: keyof typeof form, v: any) => setForm(p => ({ ...p, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    setError('');
+    setSuccess(false);
+    try {
+      const payload: CreateMetaAdsCampaignInput = {
+        ...form,
+        specialAdCategories: [],
+      };
+      if (dailyBudget) payload.dailyBudget = parseFloat(dailyBudget);
+      if (lifetimeBudget) payload.lifetimeBudget = parseFloat(lifetimeBudget);
+
+      const res = await fetch('/api/integrations/meta-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create campaign');
+      setSuccess(true);
+      setForm({ name: '', objective: 'OUTCOME_AWARENESS', status: 'PAUSED' });
+      setDailyBudget('');
+      setLifetimeBudget('');
+      onCreated();
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const inputClass = 'w-full bg-zinc-900 border border-blue-500/20 rounded-lg px-3 py-2 text-[13px] text-zinc-100 focus:outline-none focus:border-[#1877F2]/50 placeholder:text-zinc-600';
+  const labelClass = 'block text-[11px] font-medium text-zinc-400 mb-1.5 uppercase tracking-wider';
+
+  return (
+    <div className="border border-blue-500/20 rounded-xl p-5 bg-[#1877F2]/5">
+      <h3 className="text-[13px] font-semibold text-zinc-100 mb-4 flex items-center gap-2">
+        <Plus size={14} className="text-[#1877F2]" /> New Meta Campaign
+      </h3>
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Summer Sale – Awareness" value={form.name} onChange={e => updateField('name', e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Objective</label>
+          <select className={inputClass} value={form.objective} onChange={e => updateField('objective', e.target.value as any)}>
+            <option value="OUTCOME_AWARENESS">Awareness</option>
+            <option value="OUTCOME_ENGAGEMENT">Engagement</option>
+            <option value="OUTCOME_TRAFFIC">Traffic</option>
+            <option value="OUTCOME_LEADS">Leads</option>
+            <option value="OUTCOME_APP_PROMOTION">App Promotion</option>
+            <option value="OUTCOME_SALES">Sales</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={form.status} onChange={e => updateField('status', e.target.value as any)}>
+            <option value="PAUSED">Paused (recommended)</option>
+            <option value="ACTIVE">Active</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Daily Budget (USD, optional)</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 50.00" value={dailyBudget} onChange={e => setDailyBudget(e.target.value)} />
+        </div>
+        <div>
+          <label className={labelClass}>Lifetime Budget (USD, optional)</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 1000.00" value={lifetimeBudget} onChange={e => setLifetimeBudget(e.target.value)} />
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5 bg-[#1877F2] hover:bg-blue-700 border-0" disabled={creating || !form.name}>
             {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
           </Button>
           {error && <span className="text-[12px] text-red-400">{error}</span>}
