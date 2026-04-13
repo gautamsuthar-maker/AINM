@@ -9,6 +9,8 @@ const buttonVariants = cva(
       variant: {
         default:
           "bg-brand-primary text-white hover:bg-brand-primary-hover shadow-sm",
+        primary:
+          "bg-brand-primary text-white hover:bg-brand-primary-hover shadow-sm",
         success:
           "bg-brand-success text-white hover:opacity-85 shadow-sm",
         danger:

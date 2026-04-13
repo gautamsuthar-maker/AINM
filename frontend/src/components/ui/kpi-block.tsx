@@ -5,14 +5,21 @@ import { TrendingUp, TrendingDown, Minus } from "lucide-react"
 interface KPIBlockProps extends React.HTMLAttributes<HTMLDivElement> {
   label: string;
   value: string;
-  trend?: {
+  sub?: string;
+  trend?: string | {
     value: string;
     direction: "up" | "down" | "flat";
   };
   chart?: React.ReactNode;
 }
 
-export function KPIBlock({ label, value, trend, chart, className, ...props }: KPIBlockProps) {
+export function KPIBlock({ label, value, sub, trend, chart, className, ...props }: KPIBlockProps) {
+  const trendDir: "up" | "down" | "flat" =
+    typeof trend === "string"
+      ? trend === "up" ? "up" : trend === "down" ? "down" : "flat"
+      : trend?.direction ?? "flat";
+  const trendLabel = typeof trend === "string" ? "" : (trend?.value ?? "");
+
   return (
     <div
       className={cn(
@@ -28,17 +35,20 @@ export function KPIBlock({ label, value, trend, chart, className, ...props }: KP
         <div className="text-[22px] font-bold text-white">{value}</div>
         {chart && <div className="shrink-0">{chart}</div>}
       </div>
+      {sub && !trend && (
+        <div className="mt-1 text-[11px] text-brand-text-muted">{sub}</div>
+      )}
       {trend && (
         <div className={cn(
           "mt-1 flex items-center gap-1 text-[11px]",
-          trend.direction === "up" && "text-brand-success",
-          trend.direction === "down" && "text-brand-danger",
-          trend.direction === "flat" && "text-brand-text-muted",
+          trendDir === "up" && "text-brand-success",
+          trendDir === "down" && "text-brand-danger",
+          trendDir === "flat" && "text-brand-text-muted",
         )}>
-          {trend.direction === "up" && <TrendingUp size={12} />}
-          {trend.direction === "down" && <TrendingDown size={12} />}
-          {trend.direction === "flat" && <Minus size={12} />}
-          {trend.value}
+          {trendDir === "up" && <TrendingUp size={12} />}
+          {trendDir === "down" && <TrendingDown size={12} />}
+          {trendDir === "flat" && <Minus size={12} />}
+          {trendLabel || sub}
         </div>
       )}
     </div>

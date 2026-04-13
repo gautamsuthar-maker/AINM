@@ -11,6 +11,8 @@ const badgeVariants = cva(
           "bg-brand-sidebar-hover text-brand-text-muted hover:bg-brand-sidebar-active",
         ok:
           "bg-brand-success/10 text-brand-success",
+        success:
+          "bg-brand-success/10 text-brand-success",
         warn:
           "bg-brand-warning/10 text-brand-warning",
         danger:
