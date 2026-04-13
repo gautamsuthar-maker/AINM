@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -828,7 +828,7 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
 
 type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads' | 'microsoft-ads' | 'amazon-ads' | 'pinterest-ads';
 
-export default function IntegrationsPage() {
+function IntegrationsContent() {
   const searchParams = useSearchParams();
 
   const [tab, setTab] = useState<Tab>('overview');
@@ -3211,6 +3211,14 @@ export default function IntegrationsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function IntegrationsPage() {
+  return (
+    <Suspense fallback={<div className="flex h-64 items-center justify-center text-brand-text-muted text-[13px]">Loading...</div>}>
+      <IntegrationsContent />
+    </Suspense>
   );
 }
 
