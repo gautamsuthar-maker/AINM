@@ -37,6 +37,7 @@ import type { LinkedInCampaign, LinkedInCampaignGroup, LinkedInCreative, LinkedI
 import type { SnapchatConnectionStatus as SnapStatus, SnapchatAdAccount as SnapAdAccount, SnapchatCampaign, CreateSnapchatCampaignInput } from '@/lib/snapchat-ads/types';
 import type { MicrosoftAdsConnectionStatus as MsStatus, MicrosoftAdsAccount as MsAdAccount, MicrosoftAdsCampaign as MsCampaign, CreateMicrosoftAdsCampaignInput } from '@/lib/microsoft-ads/types';
 import type { AmazonAdsConnectionStatus as AmzStatus, AmazonAdsProfile as AmzProfile, AmazonAdsCampaign as AmzCampaign, CreateAmazonAdsCampaignInput } from '@/lib/amazon-ads/types';
+import type { PinterestAdsConnectionStatus as PinStatus, PinterestAdAccount as PinAdAccount, PinterestCampaign as PinCampaign, CreatePinterestCampaignInput } from '@/lib/pinterest-ads/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -825,7 +826,7 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads' | 'microsoft-ads' | 'amazon-ads';
+type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads' | 'microsoft-ads' | 'amazon-ads' | 'pinterest-ads';
 
 export default function IntegrationsPage() {
   const searchParams = useSearchParams();
@@ -1271,6 +1272,86 @@ export default function IntegrationsPage() {
     setAmzProfiles([]);
   }
 
+  // ── Pinterest Ads state ──────────────────────────────────────────────────
+  const [pinStatus, setPinStatus] = useState<PinStatus>({ connected: false, step: 'disconnected' });
+  const [pinLoading, setPinLoading] = useState(true);
+  const [pinCampaigns, setPinCampaigns] = useState<PinCampaign[]>([]);
+  const [pinCampaignsLoading, setPinCampaignsLoading] = useState(false);
+  const [pinConnectingOAuth, setPinConnectingOAuth] = useState(false);
+  const [pinAccounts, setPinAccounts] = useState<PinAdAccount[]>([]);
+  const [pinAccountsLoading, setPinAccountsLoading] = useState(false);
+  const [pinSelectingAccount, setPinSelectingAccount] = useState<string | null>(null);
+
+  const fetchPinAccounts = useCallback(async () => {
+    setPinAccountsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/pinterest-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setPinAccounts(data.accounts ?? []);
+    } catch { setPinAccounts([]); }
+    finally { setPinAccountsLoading(false); }
+  }, []);
+
+  const checkPinConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/pinterest-ads/status');
+      const data: PinStatus = await res.json();
+      setPinStatus(data);
+      if (data.step === 'connected') fetchPinCampaigns();
+      if (data.step === 'authenticated') fetchPinAccounts();
+    } catch { setPinStatus({ connected: false, step: 'disconnected' }); }
+    finally { setPinLoading(false); }
+  }, [fetchPinAccounts]);
+
+  const fetchPinCampaigns = useCallback(async () => {
+    setPinCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/pinterest-ads/campaigns');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setPinCampaigns(data.campaigns ?? []);
+    } catch { setPinCampaigns([]); }
+    finally { setPinCampaignsLoading(false); }
+  }, []);
+
+  useEffect(() => { checkPinConnection(); }, [checkPinConnection]);
+
+  useEffect(() => {
+    if (searchParams.get('pin_step') === 'select_account') { setTab('pinterest-ads'); checkPinConnection(); }
+    if (searchParams.get('pin_error')) console.error('Pinterest Ads OAuth error:', searchParams.get('pin_error'));
+  }, [searchParams, checkPinConnection]);
+
+  async function handlePinterestConnect() {
+    setPinConnectingOAuth(true);
+    try {
+      const res = await fetch('/api/integrations/pinterest-ads/auth');
+      const data = await res.json();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch { setPinConnectingOAuth(false); }
+  }
+
+  async function handlePinSelectAccount(account: PinAdAccount) {
+    setPinSelectingAccount(account.id);
+    try {
+      const res = await fetch('/api/integrations/pinterest-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adAccountId: account.id, adAccountName: account.name }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await checkPinConnection();
+    } catch (err) { console.error('Pinterest Ads account selection error:', err); }
+    finally { setPinSelectingAccount(null); }
+  }
+
+  async function handlePinterestDisconnect() {
+    await fetch('/api/integrations/pinterest-ads/disconnect', { method: 'POST' });
+    setPinStatus({ connected: false, step: 'disconnected' });
+    setPinCampaigns([]);
+    setPinAccounts([]);
+  }
+
   // Build live platform list with real connection statuses
   const platforms = basePlatforms.map(p => {
     if (p.id === 'google-ads' && gadsStatus.connected) {
@@ -1287,6 +1368,9 @@ export default function IntegrationsPage() {
     }
     if (p.id === 'amazon-ads' && amzStatus.connected) {
       return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: amzStatus.profileId, lastSync: amzStatus.connectedAt };
+    }
+    if (p.id === 'pinterest-ads' && pinStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: pinStatus.adAccountId, lastSync: pinStatus.connectedAt };
     }
     return p;
   });
@@ -1342,6 +1426,7 @@ export default function IntegrationsPage() {
           { id: 'snapchat-ads', label: 'Snapchat Ads', badge: snapStatus.step !== 'disconnected' },
           { id: 'microsoft-ads', label: 'Microsoft Ads', badge: msStatus.step !== 'disconnected' },
           { id: 'amazon-ads', label: 'Amazon Ads', badge: amzStatus.step !== 'disconnected' },
+          { id: 'pinterest-ads', label: 'Pinterest Ads', badge: pinStatus.step !== 'disconnected' },
         ] as { id: Tab; label: string; badge?: boolean }[]).map(t => (
           <button
             key={t.id}
@@ -1413,6 +1498,7 @@ export default function IntegrationsPage() {
                           else if (p.id === 'snapchat-ads' && p.status === 'connected') setTab('snapchat-ads');
                           else if (p.id === 'microsoft-ads' && p.status === 'connected') setTab('microsoft-ads');
                           else if (p.id === 'amazon-ads' && p.status === 'connected') setTab('amazon-ads');
+                          else if (p.id === 'pinterest-ads' && p.status === 'connected') setTab('pinterest-ads');
                           else setTab('platform');
                         }}
                         className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1"
@@ -1498,6 +1584,21 @@ export default function IntegrationsPage() {
                     ) : (
                       <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleAmazonConnect} disabled={amzConnectingOAuth || amzLoading}>
                         {amzConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                      </Button>
+                    )
+                  ) : p.id === 'pinterest-ads' ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('pinterest-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handlePinterestDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handlePinterestConnect} disabled={pinConnectingOAuth || pinLoading}>
+                        {pinConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
                       </Button>
                     )
                   ) : (
@@ -2089,6 +2190,257 @@ export default function IntegrationsPage() {
                   <p><strong className="text-brand-text-muted">Audience:</strong> <code className="text-blue-400">POST /api/integrations/linkedin-ads/audience-counts</code></p>
                   <p><strong className="text-brand-text-muted">Pricing:</strong> <code className="text-blue-400">POST /api/integrations/linkedin-ads/budget-pricing</code></p>
                   <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 — 60-day access token with auto-refresh</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: Pinterest Ads ── */}
+      {tab === 'pinterest-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Authorize', done: pinStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Account', done: pinStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: pinStatus.step === 'connected' && pinCampaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && pinStatus.step === 'disconnected') ||
+                (step === 2 && pinStatus.step === 'authenticated') ||
+                (step === 3 && pinStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                      isCurrent ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                      'bg-brand-card text-brand-text-dim border border-brand-border'
+                    }`}>
+                      {done ? <CheckCircle2 size={14} /> : step}
+                    </div>
+                    <span className={`text-[12px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>
+                      {label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Authorize */}
+          {pinStatus.step === 'disconnected' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="p-8 flex flex-col items-center text-center max-w-lg mx-auto">
+                <div className="h-16 w-16 rounded-2xl bg-red-600 flex items-center justify-center text-[22px] font-bold text-white mb-5">P</div>
+                <h3 className="text-[18px] font-bold text-white mb-2">Connect your Pinterest Ads account</h3>
+                <p className="text-[13px] text-brand-text-muted mb-6 leading-relaxed">
+                  Sign in with Pinterest to give AINM access to your ad campaigns.
+                  You&apos;ll pick which ad account to connect in the next step.
+                </p>
+                <div className="flex flex-col gap-3 w-full mb-6">
+                  {[
+                    { icon: Eye, text: 'View all your Standard, Shopping, Video, and Carousel campaigns' },
+                    { icon: Megaphone, text: 'Create and manage campaigns targeting Pinterest audiences' },
+                    { icon: BarChart2, text: 'Pull impressions, saves, clicks, Pin-clicks, and spend data' },
+                    { icon: Lock, text: 'Your credentials stay server-side — never exposed to the browser' },
+                  ].map(({ icon: Icon, text }) => (
+                    <div key={text} className="flex items-center gap-3 text-left rounded-lg bg-brand-bg border border-brand-border px-4 py-3">
+                      <Icon size={16} className="text-red-400 shrink-0" />
+                      <span className="text-[12px] text-brand-text-muted">{text}</span>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="default" className="text-[13px] h-11 px-8" onClick={handlePinterestConnect} disabled={pinConnectingOAuth || pinLoading}>
+                  {pinConnectingOAuth
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Redirecting to Pinterest...</>
+                    : pinLoading
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Checking connection...</>
+                    : <>Sign in with Pinterest</>
+                  }
+                </Button>
+                <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 — you can revoke access anytime from Pinterest settings</p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Select Account */}
+          {pinStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="border-b border-brand-border px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-red-600 flex items-center justify-center text-[11px] font-bold text-white">P</div>
+                  <div className="flex-1">
+                    <h3 className="text-[15px] font-bold text-white">Select a Pinterest Ad Account</h3>
+                    <p className="text-[12px] text-brand-text-muted">Your Pinterest profile has access to the ad accounts below.</p>
+                  </div>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handlePinterestDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Cancel
+                  </Button>
+                </div>
+              </div>
+              <div className="p-6">
+                {pinAccountsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={24} className="animate-spin text-red-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your Pinterest Ad accounts...</span>
+                  </div>
+                ) : pinAccounts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertCircle size={32} className="mx-auto text-amber-400 mb-3" />
+                    <p className="text-[14px] text-white mb-1">No Pinterest Ad accounts found</p>
+                    <p className="text-[12px] text-brand-text-muted mb-4">Your Pinterest account does not have access to any ad accounts.</p>
+                    <div className="flex gap-2 justify-center">
+                      <Button variant="default" className="text-[12px] h-8" onClick={fetchPinAccounts}><RefreshCw size={12} className="mr-1.5" /> Retry</Button>
+                      <Button variant="default" className="text-[12px] h-8" onClick={handlePinterestDisconnect}>Try another account</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {pinAccounts.map(account => (
+                      <button key={account.id} onClick={() => handlePinSelectAccount(account)} disabled={pinSelectingAccount !== null}
+                        className="text-left rounded-xl border border-brand-border bg-brand-bg p-4 hover:border-red-500/40 hover:bg-red-500/5 transition-all group disabled:opacity-60">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="h-9 w-9 rounded-lg bg-red-600/10 border border-red-500/20 flex items-center justify-center">
+                            <Megaphone size={16} className="text-red-400" />
+                          </div>
+                          {pinSelectingAccount === account.id
+                            ? <Loader2 size={16} className="animate-spin text-red-400" />
+                            : <ChevronRight size={16} className="text-brand-text-dim group-hover:text-red-400 transition-colors" />
+                          }
+                        </div>
+                        <div className="text-[14px] font-semibold text-white mb-1 truncate">{account.name}</div>
+                        <div className="text-[12px] text-brand-text-muted mb-2 font-mono">ID: {account.id}</div>
+                        <div className="flex items-center gap-3">
+                          {account.currency && <span className="text-[11px] text-brand-text-dim">{account.currency}</span>}
+                          <Badge variant={account.status === 'ACTIVE' ? 'ok' : 'warn'}>{account.status}</Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Campaign Dashboard */}
+          {pinStatus.step === 'connected' && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-red-600 flex items-center justify-center text-[11px] font-bold text-white">P</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[16px] font-bold text-white">{pinStatus.adAccountName || 'Pinterest Ads'}</h2>
+                      <Badge variant="ok">Connected</Badge>
+                    </div>
+                    <div className="text-[12px] text-brand-text-muted mt-0.5">
+                      Account ID: {pinStatus.adAccountId}
+                      {pinStatus.connectedAt && <> &middot; Connected {new Date(pinStatus.connectedAt).toLocaleDateString()}</>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="default" className="text-[12px] h-8" onClick={fetchPinCampaigns} disabled={pinCampaignsLoading}>
+                    <RefreshCw size={12} className={`mr-1.5 ${pinCampaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handlePinterestDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Disconnect
+                  </Button>
+                </div>
+              </div>
+
+              {pinCampaigns.length > 0 && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: 'Campaigns', value: pinCampaigns.length.toString(), icon: Megaphone, color: 'text-red-400' },
+                    { label: 'Impressions', value: formatNumber(pinCampaigns.reduce((a, c) => a + c.metrics.impressions, 0)), icon: Eye, color: 'text-purple-400' },
+                    { label: 'Clicks', value: formatNumber(pinCampaigns.reduce((a, c) => a + c.metrics.clicks, 0)), icon: MousePointerClick, color: 'text-emerald-400' },
+                    { label: 'Spend', value: `$${pinCampaigns.reduce((a, c) => a + c.metrics.spend, 0).toFixed(2)}`, icon: DollarSign, color: 'text-amber-400' },
+                  ].map(({ label, value, icon: Icon, color }) => (
+                    <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon size={14} className={color} />
+                        <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                      </div>
+                      <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[14px] font-semibold text-white">Pinterest Campaigns (Last 30 Days)</h3>
+                  <span className="text-[11px] text-brand-text-dim">{pinCampaigns.length} campaigns</span>
+                </div>
+                {pinCampaignsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 size={24} className="animate-spin text-red-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from Pinterest...</span>
+                  </div>
+                ) : pinCampaigns.length === 0 ? (
+                  <div className="text-center py-16">
+                    <Megaphone size={32} className="mx-auto text-brand-text-dim mb-3" />
+                    <p className="text-[14px] text-brand-text-muted mb-1">No campaigns found</p>
+                    <p className="text-[12px] text-brand-text-dim">Create your first campaign or check the connected account.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-brand-border text-[11px] uppercase tracking-wider text-brand-text-muted">
+                          <th className="pb-3 pr-4 font-medium">Campaign</th>
+                          <th className="pb-3 px-3 font-medium">Status</th>
+                          <th className="pb-3 px-3 font-medium">Objective</th>
+                          <th className="pb-3 px-3 font-medium text-right">Impressions</th>
+                          <th className="pb-3 px-3 font-medium text-right">Clicks</th>
+                          <th className="pb-3 px-3 font-medium text-right">Saves</th>
+                          <th className="pb-3 px-3 font-medium text-right">CTR</th>
+                          <th className="pb-3 px-3 font-medium text-right">Spend</th>
+                          <th className="pb-3 pl-3 font-medium text-right">Daily Cap</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pinCampaigns.map(c => {
+                          const sc = c.status === 'ACTIVE' ? 'text-emerald-400' : c.status === 'PAUSED' ? 'text-amber-400' : 'text-brand-text-dim';
+                          return (
+                            <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-sidebar-hover/50 transition-colors">
+                              <td className="py-3 pr-4">
+                                <div className="text-[13px] font-medium text-white max-w-[240px] truncate">{c.name}</div>
+                                <div className="text-[11px] text-brand-text-dim">ID: {c.id}</div>
+                              </td>
+                              <td className="py-3 px-3"><span className={`text-[12px] font-medium ${sc}`}>{c.status}</span></td>
+                              <td className="py-3 px-3 text-[12px] text-brand-text-muted">{c.objective_type.replace(/_/g, ' ')}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.impressions)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.clicks)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.saves)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">{formatPercent(c.metrics.ctr)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">${c.metrics.spend.toFixed(2)}</td>
+                              <td className="py-3 pl-3 text-right text-[13px] text-brand-text-muted tabular-nums">
+                                {c.daily_spend_cap ? `$${c.daily_spend_cap.toFixed(2)}` : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <PinterestCreateCampaignForm onCreated={fetchPinCampaigns} />
+
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Campaigns:</strong> <code className="text-red-400">GET|POST /api/integrations/pinterest-ads/campaigns</code> — /v5/ad_accounts/&#123;id&#125;/campaigns</p>
+                  <p><strong className="text-brand-text-muted">Analytics:</strong> <code className="text-red-400">GET /v5/ad_accounts/&#123;id&#125;/campaigns/analytics</code> — impressions, clicks, saves, spend (last 30 days)</p>
+                  <p><strong className="text-brand-text-muted">Accounts:</strong> <code className="text-red-400">GET /api/integrations/pinterest-ads/accessible-accounts</code> — /v5/ad_accounts</p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 — Basic auth token exchange via api.pinterest.com/v5/oauth/token</p>
                 </div>
               </div>
             </>
@@ -3635,6 +3987,108 @@ function SnapchatCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
         <div>
           <label className={labelClass}>Start Time (optional)</label>
           <input className={inputClass} type="datetime-local" value={form.start_time ? form.start_time.slice(0, 16) : ''} onChange={e => updateField('start_time', e.target.value ? new Date(e.target.value).toISOString() : undefined)} />
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5" disabled={creating || !form.name}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── Pinterest Create Campaign Form ───────────────────────────────────────────
+
+function PinterestCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [form, setForm] = useState<{
+    name: string;
+    objective_type: 'AWARENESS' | 'CONSIDERATION' | 'VIDEO_VIEW' | 'WEB_CONVERSION' | 'CATALOG_SALES' | 'WEB_SESSIONS';
+    status: 'ACTIVE' | 'PAUSED';
+  }>({
+    name: '',
+    objective_type: 'AWARENESS',
+    status: 'PAUSED',
+  });
+  const [dailyBudgetDollars, setDailyBudgetDollars] = useState('');
+  const [lifetimeBudgetDollars, setLifetimeBudgetDollars] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  function updateField<K extends keyof typeof form>(key: K, value: typeof form[K]) {
+    setForm(f => ({ ...f, [key]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true);
+    setError('');
+    setSuccess(false);
+    try {
+      const payload: any = { ...form };
+      if (dailyBudgetDollars) payload.daily_spend_cap = Math.round(parseFloat(dailyBudgetDollars) * 1_000_000);
+      if (lifetimeBudgetDollars) payload.lifetime_spend_cap = Math.round(parseFloat(lifetimeBudgetDollars) * 1_000_000);
+      const res = await fetch('/api/integrations/pinterest-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || 'Failed to create campaign');
+      }
+      setSuccess(true);
+      setForm({ name: '', objective_type: 'AWARENESS', status: 'PAUSED' });
+      setDailyBudgetDollars('');
+      setLifetimeBudgetDollars('');
+      onCreated();
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const inputClass = 'w-full rounded-lg border border-brand-border bg-brand-bg px-3 py-2 text-[13px] text-white placeholder-brand-text-dim focus:border-red-500/50 focus:outline-none transition-colors';
+  const labelClass = 'text-[11px] uppercase tracking-wider text-brand-text-muted font-medium mb-1.5 block';
+
+  return (
+    <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-5">
+      <h3 className="text-[14px] font-semibold text-white mb-4">Create Pinterest Campaign</h3>
+      <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Spring Awareness – Pinterest" value={form.name} onChange={e => updateField('name', e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Objective</label>
+          <select className={inputClass} value={form.objective_type} onChange={e => updateField('objective_type', e.target.value as any)}>
+            <option value="AWARENESS">Awareness</option>
+            <option value="CONSIDERATION">Consideration</option>
+            <option value="VIDEO_VIEW">Video View</option>
+            <option value="WEB_CONVERSION">Web Conversion</option>
+            <option value="CATALOG_SALES">Catalog Sales</option>
+            <option value="WEB_SESSIONS">Web Sessions</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={form.status} onChange={e => updateField('status', e.target.value as any)}>
+            <option value="PAUSED">Paused (recommended)</option>
+            <option value="ACTIVE">Active</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Daily Budget (USD, optional)</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 20.00" value={dailyBudgetDollars} onChange={e => setDailyBudgetDollars(e.target.value)} />
+        </div>
+        <div>
+          <label className={labelClass}>Lifetime Budget (USD, optional)</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 500.00" value={lifetimeBudgetDollars} onChange={e => setLifetimeBudgetDollars(e.target.value)} />
         </div>
         <div className="sm:col-span-2 flex items-center gap-3 pt-2">
           <Button type="submit" variant="default" className="text-[12px] h-9 px-5" disabled={creating || !form.name}>
