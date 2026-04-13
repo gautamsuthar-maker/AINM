@@ -397,6 +397,145 @@ const basePlatforms: Platform[] = [
       },
     ],
   },
+  {
+    id: 'x-ads',
+    name: 'X Ads',
+    logo: 'X',
+    status: 'disconnected',
+    docsUrl: 'https://developer.twitter.com/en/docs/twitter-ads-api',
+    authType: 'OAuth 1.0a / 2.0',
+    capabilityGroups: [
+      {
+        group: 'Campaign Management',
+        icon: Megaphone,
+        capabilities: [
+          { name: 'Campaign creation', description: 'Promoted Ads, Follower Ads, Amplify, Takeover campaigns.', status: 'available', endpoints: ['POST /9/accounts/{id}/campaigns'] },
+          { name: 'Line item & targeting', description: 'Age, gender, location, interest, keyword, follower targeting.', status: 'available', endpoints: ['POST /9/accounts/{id}/line_items'] },
+          { name: 'Ad creative', description: 'Promoted tweets, video ads, carousel, and app cards.', status: 'available', endpoints: ['POST /9/accounts/{id}/creatives/tweets'] },
+        ],
+      },
+      {
+        group: 'Reporting',
+        icon: BarChart2,
+        capabilities: [
+          { name: 'Analytics API', description: 'Impressions, engagements, video views, app installs, spend.', status: 'available', endpoints: ['GET /9/stats/accounts/{id}'] },
+          { name: 'Async jobs', description: 'Queue large historical reports and download when ready.', status: 'available', endpoints: ['POST /9/stats/jobs/accounts/{id}'] },
+        ],
+      },
+      {
+        group: 'Audience',
+        icon: Users,
+        capabilities: [
+          { name: 'Tailored audiences', description: 'Upload CRM lists, website visitors, mobile app users.', status: 'available', endpoints: ['POST /9/accounts/{id}/custom_audiences'] },
+          { name: 'Audience estimation', description: 'Estimate reach before launching a campaign.', status: 'available', endpoints: ['GET /9/accounts/{id}/reach_estimate'] },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'reddit-ads',
+    name: 'Reddit Ads',
+    logo: 'Rd',
+    status: 'disconnected',
+    docsUrl: 'https://ads-api.reddit.com/docs/',
+    authType: 'OAuth 2.0',
+    capabilityGroups: [
+      {
+        group: 'Campaign Management',
+        icon: Megaphone,
+        capabilities: [
+          { name: 'Campaign creation', description: 'Brand Awareness, Traffic, Conversions, App Install, Video Views.', status: 'available', endpoints: ['POST /api/v2.0/campaigns'] },
+          { name: 'Ad group & targeting', description: 'Subreddit, interest, keyword, device, location, community targeting.', status: 'available', endpoints: ['POST /api/v2.0/ad_groups'] },
+          { name: 'Ad creative', description: 'Image, video, carousel, and text ads.', status: 'available', endpoints: ['POST /api/v2.0/ads'] },
+        ],
+      },
+      {
+        group: 'Reporting',
+        icon: BarChart2,
+        capabilities: [
+          { name: 'Analytics API', description: 'Impressions, clicks, CPM, CPC, conversions, video completions.', status: 'available', endpoints: ['GET /api/v2.0/campaigns/{id}/analytics'] },
+        ],
+      },
+      {
+        group: 'Conversions',
+        icon: Target,
+        capabilities: [
+          { name: 'Reddit Pixel', description: 'Track page views, purchases, signups, and custom events.', status: 'available', endpoints: ['POST /rp/v1/events/pixel/{pixel_id}'] },
+          { name: 'Conversions API', description: 'Server-side event tracking for enhanced measurement.', status: 'available', endpoints: ['POST /api/v2.0/conversions/events/{account_id}'] },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'apple-search-ads',
+    name: 'Apple Search Ads',
+    logo: '',
+    status: 'disconnected',
+    docsUrl: 'https://developer.apple.com/documentation/apple_search_ads',
+    authType: 'OAuth 2.0 (Client Credentials)',
+    capabilityGroups: [
+      {
+        group: 'Campaign Management',
+        icon: Megaphone,
+        capabilities: [
+          { name: 'Campaign creation', description: 'Search results, Search tab, Today tab, Product page ads.', status: 'available', endpoints: ['POST /v5/campaigns'] },
+          { name: 'Ad group & targeting', description: 'Keyword, audience (demographic, device, customer type).', status: 'available', endpoints: ['POST /v5/campaigns/{id}/adgroups'] },
+          { name: 'Keyword management', description: 'Exact and broad match keywords with bid amounts.', status: 'available', endpoints: ['POST /v5/campaigns/{id}/adgroups/{id}/targetingkeywords'] },
+        ],
+      },
+      {
+        group: 'Reporting',
+        icon: BarChart2,
+        capabilities: [
+          { name: 'Campaign reports', description: 'Impressions, taps, installs, TTR, CPA, spend, revenue.', status: 'available', endpoints: ['POST /v5/reports/campaigns'] },
+          { name: 'Ad group & keyword reports', description: 'Granular performance by ad group and keyword.', status: 'available', endpoints: ['POST /v5/reports/campaigns/{id}/adgroups', 'POST /v5/reports/campaigns/{id}/keywords'] },
+        ],
+      },
+      {
+        group: 'Account Management',
+        icon: Lock,
+        capabilities: [
+          { name: 'Multi-org access', description: 'Manage multiple organizations and accounts from one API client.', status: 'available', endpoints: ['GET /v5/acls'] },
+          { name: 'Budget orders', description: 'Create and manage budget orders for campaign funding.', status: 'available', endpoints: ['GET /v5/budgetorders'] },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'flipkart-ads',
+    name: 'Flipkart Ads',
+    logo: 'Fk',
+    status: 'disconnected',
+    docsUrl: 'https://seller.flipkart.com/api-docs/ads-api-doc',
+    authType: 'API Key / OAuth 2.0',
+    capabilityGroups: [
+      {
+        group: 'Campaign Management',
+        icon: Megaphone,
+        capabilities: [
+          { name: 'Sponsored Products', description: 'Boost product visibility in Flipkart search results and product pages.', status: 'available', endpoints: ['POST /ads/api/v1/campaigns'] },
+          { name: 'Sponsored Brands', description: 'Brand banner ads on search results with logo and custom headline.', status: 'available', endpoints: ['POST /ads/api/v1/brand-campaigns'] },
+          { name: 'Display Ads', description: 'Programmatic display placements across Flipkart homepage and app.', status: 'planned', endpoints: ['POST /ads/api/v1/display-campaigns'] },
+        ],
+      },
+      {
+        group: 'Reporting',
+        icon: BarChart2,
+        capabilities: [
+          { name: 'Campaign analytics', description: 'Impressions, clicks, spends, orders, ROAS, ACOS.', status: 'available', endpoints: ['GET /ads/api/v1/reports/campaign'] },
+          { name: 'Keyword performance', description: 'Keyword-level clicks, bids, impressions, and conversion data.', status: 'available', endpoints: ['GET /ads/api/v1/reports/keywords'] },
+        ],
+      },
+      {
+        group: 'Inventory & Targeting',
+        icon: ShoppingCart,
+        capabilities: [
+          { name: 'Product targeting', description: 'Target specific products or product categories.', status: 'available', endpoints: ['POST /ads/api/v1/targeting'] },
+          { name: 'Keyword bidding', description: 'Manual and automatic keyword bid management.', status: 'available', endpoints: ['PUT /ads/api/v1/keywords'] },
+        ],
+      },
+    ],
+  },
 ];
 
 // ─── Formatting Helpers ───────────────────────────────────────────────────────
@@ -482,6 +621,10 @@ function PlatformLogo({ platform }: { platform: Platform }) {
     'amazon-ads': 'bg-orange-600',
     'snapchat-ads': 'bg-yellow-400',
     'pinterest-ads': 'bg-red-600',
+    'x-ads': 'bg-zinc-900 border border-white/20',
+    'reddit-ads': 'bg-orange-500',
+    'apple-search-ads': 'bg-zinc-800',
+    'flipkart-ads': 'bg-yellow-500',
   };
   return (
     <div className={`h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-bold text-white ${bgMap[platform.id] ?? 'bg-brand-card'} shrink-0`}>
