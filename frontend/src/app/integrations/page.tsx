@@ -35,6 +35,7 @@ import {
 import type { CampaignData, ConnectionStatus as GadsStatus, CreateCampaignInput, GoogleAdsAccount } from '@/lib/google-ads/types';
 import type { LinkedInCampaign, LinkedInCampaignGroup, LinkedInCreative, LinkedInConnectionStatus as LiStatus, LinkedInAdAccount, CreateLinkedInCampaignInput, CreateCampaignGroupInput, CreateCreativeInput, TargetingCriteria } from '@/lib/linkedin-ads/types';
 import type { SnapchatConnectionStatus as SnapStatus, SnapchatAdAccount as SnapAdAccount, SnapchatCampaign, CreateSnapchatCampaignInput } from '@/lib/snapchat-ads/types';
+import type { MicrosoftAdsConnectionStatus as MsStatus, MicrosoftAdsAccount as MsAdAccount, MicrosoftAdsCampaign as MsCampaign, CreateMicrosoftAdsCampaignInput } from '@/lib/microsoft-ads/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -823,7 +824,7 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads';
+type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads' | 'microsoft-ads';
 
 export default function IntegrationsPage() {
   const searchParams = useSearchParams();
@@ -1103,6 +1104,86 @@ export default function IntegrationsPage() {
     setSnapAccounts([]);
   }
 
+  // ── Microsoft Ads state ──────────────────────────────────────────────────
+  const [msStatus, setMsStatus] = useState<MsStatus>({ connected: false, step: 'disconnected' });
+  const [msLoading, setMsLoading] = useState(true);
+  const [msCampaigns, setMsCampaigns] = useState<MsCampaign[]>([]);
+  const [msCampaignsLoading, setMsCampaignsLoading] = useState(false);
+  const [msConnectingOAuth, setMsConnectingOAuth] = useState(false);
+  const [msAccounts, setMsAccounts] = useState<MsAdAccount[]>([]);
+  const [msAccountsLoading, setMsAccountsLoading] = useState(false);
+  const [msSelectingAccount, setMsSelectingAccount] = useState<string | null>(null);
+
+  const fetchMsAccounts = useCallback(async () => {
+    setMsAccountsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/microsoft-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setMsAccounts(data.accounts ?? []);
+    } catch { setMsAccounts([]); }
+    finally { setMsAccountsLoading(false); }
+  }, []);
+
+  const checkMsConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/microsoft-ads/status');
+      const data: MsStatus = await res.json();
+      setMsStatus(data);
+      if (data.step === 'connected') fetchMsCampaigns();
+      if (data.step === 'authenticated') fetchMsAccounts();
+    } catch { setMsStatus({ connected: false, step: 'disconnected' }); }
+    finally { setMsLoading(false); }
+  }, [fetchMsAccounts]);
+
+  const fetchMsCampaigns = useCallback(async () => {
+    setMsCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/microsoft-ads/campaigns');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setMsCampaigns(data.campaigns ?? []);
+    } catch { setMsCampaigns([]); }
+    finally { setMsCampaignsLoading(false); }
+  }, []);
+
+  useEffect(() => { checkMsConnection(); }, [checkMsConnection]);
+
+  useEffect(() => {
+    if (searchParams.get('ms_step') === 'select_account') { setTab('microsoft-ads'); checkMsConnection(); }
+    if (searchParams.get('ms_error')) console.error('Microsoft Ads OAuth error:', searchParams.get('ms_error'));
+  }, [searchParams, checkMsConnection]);
+
+  async function handleMicrosoftConnect() {
+    setMsConnectingOAuth(true);
+    try {
+      const res = await fetch('/api/integrations/microsoft-ads/auth');
+      const data = await res.json();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch { setMsConnectingOAuth(false); }
+  }
+
+  async function handleMsSelectAccount(account: MsAdAccount) {
+    setMsSelectingAccount(account.id);
+    try {
+      const res = await fetch('/api/integrations/microsoft-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: account.id, accountName: account.name, customerId: account.customer_id }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await checkMsConnection();
+    } catch (err) { console.error('Microsoft Ads account selection error:', err); }
+    finally { setMsSelectingAccount(null); }
+  }
+
+  async function handleMicrosoftDisconnect() {
+    await fetch('/api/integrations/microsoft-ads/disconnect', { method: 'POST' });
+    setMsStatus({ connected: false, step: 'disconnected' });
+    setMsCampaigns([]);
+    setMsAccounts([]);
+  }
+
   // Build live platform list with real connection statuses
   const platforms = basePlatforms.map(p => {
     if (p.id === 'google-ads' && gadsStatus.connected) {
@@ -1113,6 +1194,9 @@ export default function IntegrationsPage() {
     }
     if (p.id === 'snapchat-ads' && snapStatus.connected) {
       return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: snapStatus.adAccountId, lastSync: snapStatus.connectedAt };
+    }
+    if (p.id === 'microsoft-ads' && msStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: msStatus.accountId, lastSync: msStatus.connectedAt };
     }
     return p;
   });
@@ -1166,6 +1250,7 @@ export default function IntegrationsPage() {
           { id: 'google-ads', label: 'Google Ads', badge: gadsStatus.step !== 'disconnected' },
           { id: 'linkedin-ads', label: 'LinkedIn Ads', badge: liStatus.step !== 'disconnected' },
           { id: 'snapchat-ads', label: 'Snapchat Ads', badge: snapStatus.step !== 'disconnected' },
+          { id: 'microsoft-ads', label: 'Microsoft Ads', badge: msStatus.step !== 'disconnected' },
         ] as { id: Tab; label: string; badge?: boolean }[]).map(t => (
           <button
             key={t.id}
@@ -1235,6 +1320,7 @@ export default function IntegrationsPage() {
                           if (isGoogle && p.status === 'connected') setTab('google-ads');
                           else if (p.id === 'linkedin-ads' && p.status === 'connected') setTab('linkedin-ads');
                           else if (p.id === 'snapchat-ads' && p.status === 'connected') setTab('snapchat-ads');
+                          else if (p.id === 'microsoft-ads' && p.status === 'connected') setTab('microsoft-ads');
                           else setTab('platform');
                         }}
                         className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1"
@@ -1290,6 +1376,21 @@ export default function IntegrationsPage() {
                     ) : (
                       <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleSnapchatConnect} disabled={snapConnectingOAuth || snapLoading}>
                         {snapConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                      </Button>
+                    )
+                  ) : p.id === 'microsoft-ads' ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('microsoft-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handleMicrosoftDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleMicrosoftConnect} disabled={msConnectingOAuth || msLoading}>
+                        {msConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
                       </Button>
                     )
                   ) : (
@@ -1888,6 +1989,254 @@ export default function IntegrationsPage() {
         </div>
       )}
 
+      {/* ── TAB: Microsoft Ads ── */}
+      {tab === 'microsoft-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Authorize', done: msStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Account', done: msStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: msStatus.step === 'connected' && msCampaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && msStatus.step === 'disconnected') ||
+                (step === 2 && msStatus.step === 'authenticated') ||
+                (step === 3 && msStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                      isCurrent ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' :
+                      'bg-brand-card text-brand-text-dim border border-brand-border'
+                    }`}>
+                      {done ? <CheckCircle2 size={14} /> : step}
+                    </div>
+                    <span className={`text-[12px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>
+                      {label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Authorize */}
+          {msStatus.step === 'disconnected' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="p-8 flex flex-col items-center text-center max-w-lg mx-auto">
+                <div className="h-16 w-16 rounded-2xl bg-sky-600 flex items-center justify-center text-[22px] font-bold text-white mb-5">Ms</div>
+                <h3 className="text-[18px] font-bold text-white mb-2">Connect your Microsoft Ads account</h3>
+                <p className="text-[13px] text-brand-text-muted mb-6 leading-relaxed">
+                  Sign in with Microsoft to give AINM access to your Bing Ads campaigns.
+                  You&apos;ll pick which ad account to connect in the next step.
+                </p>
+                <div className="flex flex-col gap-3 w-full mb-6">
+                  {[
+                    { icon: Eye, text: 'View all your Search, Shopping, and Audience campaigns on Bing, Yahoo & DuckDuckGo' },
+                    { icon: Megaphone, text: 'Create and manage campaigns targeting Microsoft\'s search network' },
+                    { icon: BarChart2, text: 'Pull impressions, clicks, spend, and conversion data' },
+                    { icon: Lock, text: 'Your credentials stay server-side — never exposed to the browser' },
+                  ].map(({ icon: Icon, text }) => (
+                    <div key={text} className="flex items-center gap-3 text-left rounded-lg bg-brand-bg border border-brand-border px-4 py-3">
+                      <Icon size={16} className="text-sky-400 shrink-0" />
+                      <span className="text-[12px] text-brand-text-muted">{text}</span>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="default" className="text-[13px] h-11 px-8" onClick={handleMicrosoftConnect} disabled={msConnectingOAuth || msLoading}>
+                  {msConnectingOAuth
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Redirecting to Microsoft...</>
+                    : msLoading
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Checking connection...</>
+                    : <>Sign in with Microsoft</>
+                  }
+                </Button>
+                <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 — you can revoke access anytime from Microsoft account settings</p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Select Account */}
+          {msStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="border-b border-brand-border px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-sky-600 flex items-center justify-center text-[11px] font-bold text-white">Ms</div>
+                  <div className="flex-1">
+                    <h3 className="text-[15px] font-bold text-white">Select a Microsoft Ads Account</h3>
+                    <p className="text-[12px] text-brand-text-muted">Your Microsoft account has access to the ad accounts below.</p>
+                  </div>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleMicrosoftDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Cancel
+                  </Button>
+                </div>
+              </div>
+              <div className="p-6">
+                {msAccountsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={24} className="animate-spin text-sky-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your Microsoft Ads accounts...</span>
+                  </div>
+                ) : msAccounts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertCircle size={32} className="mx-auto text-amber-400 mb-3" />
+                    <p className="text-[14px] text-white mb-1">No Microsoft Ads accounts found</p>
+                    <p className="text-[12px] text-brand-text-muted mb-4">Your Microsoft account doesn&apos;t have access to any ad accounts.</p>
+                    <div className="flex gap-2 justify-center">
+                      <Button variant="default" className="text-[12px] h-8" onClick={fetchMsAccounts}><RefreshCw size={12} className="mr-1.5" /> Retry</Button>
+                      <Button variant="default" className="text-[12px] h-8" onClick={handleMicrosoftDisconnect}>Try another account</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {msAccounts.map(account => (
+                      <button key={account.id} onClick={() => handleMsSelectAccount(account)} disabled={msSelectingAccount !== null}
+                        className="text-left rounded-xl border border-brand-border bg-brand-bg p-4 hover:border-sky-500/40 hover:bg-sky-500/5 transition-all group disabled:opacity-60">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="h-9 w-9 rounded-lg bg-sky-600/10 border border-sky-500/20 flex items-center justify-center">
+                            <Megaphone size={16} className="text-sky-400" />
+                          </div>
+                          {msSelectingAccount === account.id
+                            ? <Loader2 size={16} className="animate-spin text-sky-400" />
+                            : <ChevronRight size={16} className="text-brand-text-dim group-hover:text-sky-400 transition-colors" />
+                          }
+                        </div>
+                        <div className="text-[14px] font-semibold text-white mb-1 truncate">{account.name}</div>
+                        <div className="text-[12px] text-brand-text-muted mb-2 font-mono">ID: {account.id}</div>
+                        <div className="flex items-center gap-3">
+                          {account.number && <span className="text-[11px] text-brand-text-dim">{account.number}</span>}
+                          <Badge variant={account.status === 'Active' ? 'ok' : 'warn'}>{account.status}</Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Campaign Dashboard */}
+          {msStatus.step === 'connected' && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-sky-600 flex items-center justify-center text-[11px] font-bold text-white">Ms</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[16px] font-bold text-white">{msStatus.accountName || 'Microsoft Ads'}</h2>
+                      <Badge variant="ok">Connected</Badge>
+                    </div>
+                    <div className="text-[12px] text-brand-text-muted mt-0.5">
+                      Account ID: {msStatus.accountId}
+                      {msStatus.connectedAt && <> &middot; Connected {new Date(msStatus.connectedAt).toLocaleDateString()}</>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="default" className="text-[12px] h-8" onClick={fetchMsCampaigns} disabled={msCampaignsLoading}>
+                    <RefreshCw size={12} className={`mr-1.5 ${msCampaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleMicrosoftDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Disconnect
+                  </Button>
+                </div>
+              </div>
+
+              {msCampaigns.length > 0 && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: 'Campaigns', value: msCampaigns.length.toString(), icon: Megaphone, color: 'text-sky-400' },
+                    { label: 'Impressions', value: formatNumber(msCampaigns.reduce((a, c) => a + c.metrics.impressions, 0)), icon: Eye, color: 'text-purple-400' },
+                    { label: 'Clicks', value: formatNumber(msCampaigns.reduce((a, c) => a + c.metrics.clicks, 0)), icon: MousePointerClick, color: 'text-emerald-400' },
+                    { label: 'Spend', value: `$${msCampaigns.reduce((a, c) => a + c.metrics.spend, 0).toFixed(2)}`, icon: DollarSign, color: 'text-amber-400' },
+                  ].map(({ label, value, icon: Icon, color }) => (
+                    <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon size={14} className={color} />
+                        <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                      </div>
+                      <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[14px] font-semibold text-white">Microsoft Ads Campaigns</h3>
+                  <span className="text-[11px] text-brand-text-dim">{msCampaigns.length} campaigns</span>
+                </div>
+                {msCampaignsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 size={24} className="animate-spin text-sky-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from Microsoft Ads...</span>
+                  </div>
+                ) : msCampaigns.length === 0 ? (
+                  <div className="text-center py-16">
+                    <Megaphone size={32} className="mx-auto text-brand-text-dim mb-3" />
+                    <p className="text-[14px] text-brand-text-muted mb-1">No campaigns found</p>
+                    <p className="text-[12px] text-brand-text-dim">Create your first campaign or check the connected account.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-brand-border text-[11px] uppercase tracking-wider text-brand-text-muted">
+                          <th className="pb-3 pr-4 font-medium">Campaign</th>
+                          <th className="pb-3 px-3 font-medium">Status</th>
+                          <th className="pb-3 px-3 font-medium">Type</th>
+                          <th className="pb-3 px-3 font-medium text-right">Impressions</th>
+                          <th className="pb-3 px-3 font-medium text-right">Clicks</th>
+                          <th className="pb-3 px-3 font-medium text-right">CTR</th>
+                          <th className="pb-3 px-3 font-medium text-right">Spend</th>
+                          <th className="pb-3 pl-3 font-medium text-right">Daily Budget</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {msCampaigns.map(c => {
+                          const sc = c.status === 'Active' ? 'text-emerald-400' : c.status === 'Paused' ? 'text-amber-400' : 'text-brand-text-dim';
+                          return (
+                            <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-sidebar-hover/50 transition-colors">
+                              <td className="py-3 pr-4">
+                                <div className="text-[13px] font-medium text-white max-w-[260px] truncate">{c.name}</div>
+                                <div className="text-[11px] text-brand-text-dim">ID: {c.id}</div>
+                              </td>
+                              <td className="py-3 px-3"><span className={`text-[12px] font-medium ${sc}`}>{c.status}</span></td>
+                              <td className="py-3 px-3 text-[12px] text-brand-text-muted">{c.type}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.impressions)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.clicks)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">{formatPercent(c.metrics.ctr)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">${c.metrics.spend.toFixed(2)}</td>
+                              <td className="py-3 pl-3 text-right text-[13px] text-brand-text-muted tabular-nums">
+                                {c.daily_budget ? `$${c.daily_budget.toFixed(2)}` : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <MicrosoftAdsCreateCampaignForm onCreated={fetchMsCampaigns} />
+
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Campaigns:</strong> <code className="text-sky-400">GET|POST /api/integrations/microsoft-ads/campaigns</code> — CampaignManagementService v13</p>
+                  <p><strong className="text-brand-text-muted">Accounts:</strong> <code className="text-sky-400">GET /api/integrations/microsoft-ads/accessible-accounts</code> — CustomerManagementService.GetAccountsInfo</p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 via login.microsoftonline.com — access + refresh token with auto-refresh</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── TAB: Snapchat Ads ── */}
       {tab === 'snapchat-ads' && (
         <div className="flex flex-col gap-5">
@@ -2138,6 +2487,113 @@ export default function IntegrationsPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Microsoft Ads Create Campaign Form ──────────────────────────────────────
+
+function MicrosoftAdsCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const [form, setForm] = useState<CreateMicrosoftAdsCampaignInput>({
+    name: '',
+    type: 'Search',
+    daily_budget: 10,
+    status: 'Paused',
+    time_zone: 'PacificTimeUSCanadaTijuana',
+  });
+
+  function updateField<K extends keyof CreateMicrosoftAdsCampaignInput>(key: K, value: CreateMicrosoftAdsCampaignInput[K]) {
+    setForm(prev => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true); setError(null); setSuccess(false);
+    try {
+      const res = await fetch('/api/integrations/microsoft-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create campaign');
+      setSuccess(true);
+      setForm(prev => ({ ...prev, name: '' }));
+      onCreated();
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err: any) { setError(err.message); }
+    finally { setCreating(false); }
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        className="flex items-center gap-2 rounded-lg border border-dashed border-brand-border px-4 py-3 text-[13px] text-brand-text-muted hover:border-sky-500/40 hover:text-sky-400 transition-colors w-full">
+        <Plus size={16} /> Create a new Microsoft Ads campaign via API
+      </button>
+    );
+  }
+
+  const inputClass = 'w-full rounded-lg border border-brand-border bg-brand-bg px-3 py-2 text-[13px] text-white placeholder-brand-text-dim focus:border-sky-500/50 focus:outline-none transition-colors';
+  const labelClass = 'text-[11px] uppercase tracking-wider text-brand-text-muted font-medium mb-1.5 block';
+
+  return (
+    <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-[14px] font-semibold text-white">Create Microsoft Ads Campaign</h3>
+        <button onClick={() => setOpen(false)} className="text-[12px] text-brand-text-muted hover:text-white transition-colors">Cancel</button>
+      </div>
+      <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Spring Sale – Bing Search" value={form.name} onChange={e => updateField('name', e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Campaign Type</label>
+          <select className={inputClass} value={form.type} onChange={e => updateField('type', e.target.value as any)}>
+            <option value="Search">Search</option>
+            <option value="Shopping">Shopping</option>
+            <option value="DynamicSearchAds">Dynamic Search Ads</option>
+            <option value="Audience">Audience</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={form.status} onChange={e => updateField('status', e.target.value as any)}>
+            <option value="Paused">Paused (recommended)</option>
+            <option value="Active">Active</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Daily Budget (USD)</label>
+          <input className={inputClass} type="number" min="1" step="0.01" value={form.daily_budget} onChange={e => updateField('daily_budget', parseFloat(e.target.value || '0'))} />
+        </div>
+        <div>
+          <label className={labelClass}>Time Zone</label>
+          <select className={inputClass} value={form.time_zone} onChange={e => updateField('time_zone', e.target.value)}>
+            <option value="PacificTimeUSCanadaTijuana">Pacific (US)</option>
+            <option value="MountainTimeUSCanada">Mountain (US)</option>
+            <option value="CentralTimeUSCanada">Central (US)</option>
+            <option value="EasternTimeUSCanada">Eastern (US)</option>
+            <option value="GMTDublinEdinburghLisbonLondon">London (GMT)</option>
+            <option value="BrusselsCopenhagenMadridParis">Central Europe</option>
+            <option value="Chennai">Chennai/Mumbai/New Delhi</option>
+            <option value="Singapore">Singapore/Kuala Lumpur</option>
+          </select>
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5" disabled={creating || !form.name}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
     </div>
   );
 }
