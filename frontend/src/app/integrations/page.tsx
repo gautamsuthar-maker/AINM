@@ -39,6 +39,10 @@ import type { MicrosoftAdsConnectionStatus as MsStatus, MicrosoftAdsAccount as M
 import type { AmazonAdsConnectionStatus as AmzStatus, AmazonAdsProfile as AmzProfile, AmazonAdsCampaign as AmzCampaign, CreateAmazonAdsCampaignInput } from '@/lib/amazon-ads/types';
 import type { PinterestAdsConnectionStatus as PinStatus, PinterestAdAccount as PinAdAccount, PinterestCampaign as PinCampaign, CreatePinterestCampaignInput } from '@/lib/pinterest-ads/types';
 import type { TikTokConnectionStatus as TikStatus, TikTokAdvertiser as TikAdvertiser, TikTokCampaign as TikCampaign, CreateTikTokCampaignInput } from '@/lib/tiktok-ads/types';
+import type { XAdsConnectionStatus as XStatus, XAdAccount, XAdsCampaign as XCampaign, CreateXAdsCampaignInput } from '@/lib/x-ads/types';
+import type { RedditAdsConnectionStatus as RdStatus, RedditAdAccount as RdAdAccount, RedditAdsCampaign as RdCampaign, CreateRedditAdsCampaignInput } from '@/lib/reddit-ads/types';
+import type { AppleSearchAdsConnectionStatus as AplStatus, AppleSearchAdsOrg as AplOrg, AppleSearchAdsCampaign as AplCampaign, CreateAppleSearchAdsCampaignInput } from '@/lib/apple-search-ads/types';
+import type { FlipkartAdsConnectionStatus as FkStatus, FlipkartAdvertiser as FkAdvertiser, FlipkartAdsCampaign as FkCampaign, CreateFlipkartAdsCampaignInput } from '@/lib/flipkart-ads/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -970,7 +974,7 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads' | 'microsoft-ads' | 'amazon-ads' | 'pinterest-ads' | 'tiktok-ads';
+type Tab = 'overview' | 'platform' | 'google-ads' | 'linkedin-ads' | 'snapchat-ads' | 'microsoft-ads' | 'amazon-ads' | 'pinterest-ads' | 'tiktok-ads' | 'x-ads' | 'reddit-ads' | 'apple-search-ads' | 'flipkart-ads';
 
 function IntegrationsContent() {
   const searchParams = useSearchParams();
@@ -1576,6 +1580,327 @@ function IntegrationsContent() {
     setTikAccounts([]);
   }
 
+  // ── X Ads state ──────────────────────────────────────────────────────────
+  const [xStatus, setXStatus] = useState<XStatus>({ connected: false, step: 'disconnected' });
+  const [xLoading, setXLoading] = useState(true);
+  const [xCampaigns, setXCampaigns] = useState<XCampaign[]>([]);
+  const [xCampaignsLoading, setXCampaignsLoading] = useState(false);
+  const [xConnectingOAuth, setXConnectingOAuth] = useState(false);
+  const [xAccounts, setXAccounts] = useState<XAdAccount[]>([]);
+  const [xAccountsLoading, setXAccountsLoading] = useState(false);
+  const [xSelectingAccount, setXSelectingAccount] = useState<string | null>(null);
+
+  const fetchXAccounts = useCallback(async () => {
+    setXAccountsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/x-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setXAccounts(data.accounts ?? []);
+    } catch { setXAccounts([]); }
+    finally { setXAccountsLoading(false); }
+  }, []);
+
+  const checkXConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/x-ads/status');
+      const data: XStatus = await res.json();
+      setXStatus(data);
+      if (data.step === 'connected') fetchXCampaigns();
+      if (data.step === 'authenticated') fetchXAccounts();
+    } catch { setXStatus({ connected: false, step: 'disconnected' }); }
+    finally { setXLoading(false); }
+  }, [fetchXAccounts]);
+
+  const fetchXCampaigns = useCallback(async () => {
+    setXCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/x-ads/campaigns');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setXCampaigns(data.campaigns ?? []);
+    } catch { setXCampaigns([]); }
+    finally { setXCampaignsLoading(false); }
+  }, []);
+
+  useEffect(() => { checkXConnection(); }, [checkXConnection]);
+
+  useEffect(() => {
+    if (searchParams.get('x_step') === 'select_account') { setTab('x-ads'); checkXConnection(); }
+    if (searchParams.get('x_error')) console.error('X Ads OAuth error:', searchParams.get('x_error'));
+  }, [searchParams, checkXConnection]);
+
+  async function handleXConnect() {
+    setXConnectingOAuth(true);
+    try {
+      const res = await fetch('/api/integrations/x-ads/auth');
+      const data = await res.json();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch { setXConnectingOAuth(false); }
+  }
+
+  async function handleXSelectAccount(account: XAdAccount) {
+    setXSelectingAccount(account.id);
+    try {
+      const res = await fetch('/api/integrations/x-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adAccountId: account.id, adAccountName: account.name }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await checkXConnection();
+    } catch (err) { console.error('X Ads account selection error:', err); }
+    finally { setXSelectingAccount(null); }
+  }
+
+  async function handleXDisconnect() {
+    await fetch('/api/integrations/x-ads/disconnect', { method: 'POST' });
+    setXStatus({ connected: false, step: 'disconnected' });
+    setXCampaigns([]);
+    setXAccounts([]);
+  }
+
+  // ── Reddit Ads state ─────────────────────────────────────────────────────
+  const [rdStatus, setRdStatus] = useState<RdStatus>({ connected: false, step: 'disconnected' });
+  const [rdLoading, setRdLoading] = useState(true);
+  const [rdCampaigns, setRdCampaigns] = useState<RdCampaign[]>([]);
+  const [rdCampaignsLoading, setRdCampaignsLoading] = useState(false);
+  const [rdConnectingOAuth, setRdConnectingOAuth] = useState(false);
+  const [rdAccounts, setRdAccounts] = useState<RdAdAccount[]>([]);
+  const [rdAccountsLoading, setRdAccountsLoading] = useState(false);
+  const [rdSelectingAccount, setRdSelectingAccount] = useState<string | null>(null);
+
+  const fetchRdAccounts = useCallback(async () => {
+    setRdAccountsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/reddit-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setRdAccounts(data.accounts ?? []);
+    } catch { setRdAccounts([]); }
+    finally { setRdAccountsLoading(false); }
+  }, []);
+
+  const checkRdConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/reddit-ads/status');
+      const data: RdStatus = await res.json();
+      setRdStatus(data);
+      if (data.step === 'connected') fetchRdCampaigns();
+      if (data.step === 'authenticated') fetchRdAccounts();
+    } catch { setRdStatus({ connected: false, step: 'disconnected' }); }
+    finally { setRdLoading(false); }
+  }, [fetchRdAccounts]);
+
+  const fetchRdCampaigns = useCallback(async () => {
+    setRdCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/reddit-ads/campaigns');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setRdCampaigns(data.campaigns ?? []);
+    } catch { setRdCampaigns([]); }
+    finally { setRdCampaignsLoading(false); }
+  }, []);
+
+  useEffect(() => { checkRdConnection(); }, [checkRdConnection]);
+
+  useEffect(() => {
+    if (searchParams.get('reddit_step') === 'select_account') { setTab('reddit-ads'); checkRdConnection(); }
+    if (searchParams.get('reddit_error')) console.error('Reddit Ads OAuth error:', searchParams.get('reddit_error'));
+  }, [searchParams, checkRdConnection]);
+
+  async function handleRedditConnect() {
+    setRdConnectingOAuth(true);
+    try {
+      const res = await fetch('/api/integrations/reddit-ads/auth');
+      const data = await res.json();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch { setRdConnectingOAuth(false); }
+  }
+
+  async function handleRdSelectAccount(account: RdAdAccount) {
+    setRdSelectingAccount(account.id);
+    try {
+      const res = await fetch('/api/integrations/reddit-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adAccountId: account.id, adAccountName: account.name }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await checkRdConnection();
+    } catch (err) { console.error('Reddit Ads account selection error:', err); }
+    finally { setRdSelectingAccount(null); }
+  }
+
+  async function handleRedditDisconnect() {
+    await fetch('/api/integrations/reddit-ads/disconnect', { method: 'POST' });
+    setRdStatus({ connected: false, step: 'disconnected' });
+    setRdCampaigns([]);
+    setRdAccounts([]);
+  }
+
+  // ── Apple Search Ads state ───────────────────────────────────────────────
+  const [aplStatus, setAplStatus] = useState<AplStatus>({ connected: false, step: 'disconnected' });
+  const [aplLoading, setAplLoading] = useState(true);
+  const [aplCampaigns, setAplCampaigns] = useState<AplCampaign[]>([]);
+  const [aplCampaignsLoading, setAplCampaignsLoading] = useState(false);
+  const [aplConnecting, setAplConnecting] = useState(false);
+  const [aplOrgs, setAplOrgs] = useState<AplOrg[]>([]);
+  const [aplOrgsLoading, setAplOrgsLoading] = useState(false);
+  const [aplSelectingOrg, setAplSelectingOrg] = useState<string | null>(null);
+
+  const fetchAplOrgs = useCallback(async () => {
+    setAplOrgsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/apple-search-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setAplOrgs(data.organizations ?? []);
+    } catch { setAplOrgs([]); }
+    finally { setAplOrgsLoading(false); }
+  }, []);
+
+  const checkAplConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/apple-search-ads/status');
+      const data: AplStatus = await res.json();
+      setAplStatus(data);
+      if (data.step === 'connected') fetchAplCampaigns();
+      if (data.step === 'authenticated') fetchAplOrgs();
+    } catch { setAplStatus({ connected: false, step: 'disconnected' }); }
+    finally { setAplLoading(false); }
+  }, [fetchAplOrgs]);
+
+  const fetchAplCampaigns = useCallback(async () => {
+    setAplCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/apple-search-ads/campaigns');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setAplCampaigns(data.campaigns ?? []);
+    } catch { setAplCampaigns([]); }
+    finally { setAplCampaignsLoading(false); }
+  }, []);
+
+  useEffect(() => { checkAplConnection(); }, [checkAplConnection]);
+
+  async function handleAplConnect() {
+    setAplConnecting(true);
+    try {
+      const res = await fetch('/api/integrations/apple-search-ads/connect', { method: 'POST' });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || 'Connection failed');
+      }
+      await fetchAplOrgs();
+      setAplStatus(s => ({ ...s, step: 'authenticated' }));
+    } catch (err: any) {
+      console.error('Apple Search Ads connect error:', err);
+    } finally { setAplConnecting(false); }
+  }
+
+  async function handleAplSelectOrg(org: AplOrg) {
+    setAplSelectingOrg(String(org.orgId));
+    try {
+      const res = await fetch('/api/integrations/apple-search-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId: org.orgId, orgName: org.orgName }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await checkAplConnection();
+    } catch (err) { console.error('Apple Search Ads org selection error:', err); }
+    finally { setAplSelectingOrg(null); }
+  }
+
+  async function handleAplDisconnect() {
+    await fetch('/api/integrations/apple-search-ads/disconnect', { method: 'POST' });
+    setAplStatus({ connected: false, step: 'disconnected' });
+    setAplCampaigns([]);
+    setAplOrgs([]);
+  }
+
+  // ── Flipkart Ads state ───────────────────────────────────────────────────
+  const [fkStatus, setFkStatus] = useState<FkStatus>({ connected: false, step: 'disconnected' });
+  const [fkLoading, setFkLoading] = useState(true);
+  const [fkCampaigns, setFkCampaigns] = useState<FkCampaign[]>([]);
+  const [fkCampaignsLoading, setFkCampaignsLoading] = useState(false);
+  const [fkConnectingOAuth, setFkConnectingOAuth] = useState(false);
+  const [fkAdvertisers, setFkAdvertisers] = useState<FkAdvertiser[]>([]);
+  const [fkAdvertisersLoading, setFkAdvertisersLoading] = useState(false);
+  const [fkSelectingAccount, setFkSelectingAccount] = useState<string | null>(null);
+
+  const fetchFkAdvertisers = useCallback(async () => {
+    setFkAdvertisersLoading(true);
+    try {
+      const res = await fetch('/api/integrations/flipkart-ads/accessible-accounts');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setFkAdvertisers(data.advertisers ?? []);
+    } catch { setFkAdvertisers([]); }
+    finally { setFkAdvertisersLoading(false); }
+  }, []);
+
+  const checkFkConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/flipkart-ads/status');
+      const data: FkStatus = await res.json();
+      setFkStatus(data);
+      if (data.step === 'connected') fetchFkCampaigns();
+      if (data.step === 'authenticated') fetchFkAdvertisers();
+    } catch { setFkStatus({ connected: false, step: 'disconnected' }); }
+    finally { setFkLoading(false); }
+  }, [fetchFkAdvertisers]);
+
+  const fetchFkCampaigns = useCallback(async () => {
+    setFkCampaignsLoading(true);
+    try {
+      const res = await fetch('/api/integrations/flipkart-ads/campaigns');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setFkCampaigns(data.campaigns ?? []);
+    } catch { setFkCampaigns([]); }
+    finally { setFkCampaignsLoading(false); }
+  }, []);
+
+  useEffect(() => { checkFkConnection(); }, [checkFkConnection]);
+
+  useEffect(() => {
+    if (searchParams.get('flipkart_step') === 'select_account') { setTab('flipkart-ads'); checkFkConnection(); }
+    if (searchParams.get('flipkart_error')) console.error('Flipkart Ads OAuth error:', searchParams.get('flipkart_error'));
+  }, [searchParams, checkFkConnection]);
+
+  async function handleFkConnect() {
+    setFkConnectingOAuth(true);
+    try {
+      const res = await fetch('/api/integrations/flipkart-ads/auth');
+      const data = await res.json();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch { setFkConnectingOAuth(false); }
+  }
+
+  async function handleFkSelectAccount(advertiser: FkAdvertiser) {
+    setFkSelectingAccount(advertiser.id);
+    try {
+      const res = await fetch('/api/integrations/flipkart-ads/select-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ advertiserId: advertiser.id, advertiserName: advertiser.name }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await checkFkConnection();
+    } catch (err) { console.error('Flipkart Ads account selection error:', err); }
+    finally { setFkSelectingAccount(null); }
+  }
+
+  async function handleFkDisconnect() {
+    await fetch('/api/integrations/flipkart-ads/disconnect', { method: 'POST' });
+    setFkStatus({ connected: false, step: 'disconnected' });
+    setFkCampaigns([]);
+    setFkAdvertisers([]);
+  }
+
   // Build live platform list with real connection statuses
   const platforms = basePlatforms.map(p => {
     if (p.id === 'google-ads' && gadsStatus.connected) {
@@ -1598,6 +1923,18 @@ function IntegrationsContent() {
     }
     if (p.id === 'tiktok-ads' && tikStatus.connected) {
       return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: tikStatus.advertiserId, lastSync: tikStatus.connectedAt };
+    }
+    if (p.id === 'x-ads' && xStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: xStatus.adAccountId, lastSync: xStatus.connectedAt };
+    }
+    if (p.id === 'reddit-ads' && rdStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: rdStatus.adAccountId, lastSync: rdStatus.connectedAt };
+    }
+    if (p.id === 'apple-search-ads' && aplStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: aplStatus.orgId, lastSync: aplStatus.connectedAt };
+    }
+    if (p.id === 'flipkart-ads' && fkStatus.connected) {
+      return { ...p, status: 'connected' as PlatformConnectionStatus, accountId: fkStatus.advertiserId, lastSync: fkStatus.connectedAt };
     }
     return p;
   });
@@ -1655,6 +1992,10 @@ function IntegrationsContent() {
           { id: 'amazon-ads', label: 'Amazon Ads', badge: amzStatus.step !== 'disconnected' },
           { id: 'pinterest-ads', label: 'Pinterest Ads', badge: pinStatus.step !== 'disconnected' },
           { id: 'tiktok-ads', label: 'TikTok Ads', badge: tikStatus.step !== 'disconnected' },
+          { id: 'x-ads', label: 'X Ads', badge: xStatus.step !== 'disconnected' },
+          { id: 'reddit-ads', label: 'Reddit Ads', badge: rdStatus.step !== 'disconnected' },
+          { id: 'apple-search-ads', label: 'Apple Search Ads', badge: aplStatus.step !== 'disconnected' },
+          { id: 'flipkart-ads', label: 'Flipkart Ads', badge: fkStatus.step !== 'disconnected' },
         ] as { id: Tab; label: string; badge?: boolean }[]).map(t => (
           <button
             key={t.id}
@@ -1842,6 +2183,66 @@ function IntegrationsContent() {
                     ) : (
                       <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleTikTokConnect} disabled={tikConnectingOAuth || tikLoading}>
                         {tikConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                      </Button>
+                    )
+                  ) : p.id === 'x-ads' ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('x-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handleXDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleXConnect} disabled={xConnectingOAuth || xLoading}>
+                        {xConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                      </Button>
+                    )
+                  ) : p.id === 'reddit-ads' ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('reddit-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handleRedditDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleRedditConnect} disabled={rdConnectingOAuth || rdLoading}>
+                        {rdConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
+                      </Button>
+                    )
+                  ) : p.id === 'apple-search-ads' ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('apple-search-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handleAplDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={() => setTab('apple-search-ads')} disabled={aplLoading}>
+                        <><Plus size={12} className="mr-1.5" /> Connect</>
+                      </Button>
+                    )
+                  ) : p.id === 'flipkart-ads' ? (
+                    p.status === 'connected' ? (
+                      <div className="flex gap-2 mt-1">
+                        <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('flipkart-ads')}>
+                          <BarChart2 size={12} className="mr-1.5" /> View Campaigns
+                        </Button>
+                        <Button variant="default" className="text-[12px] h-8 px-3" onClick={handleFkDisconnect}>
+                          <Unplug size={12} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="default" className="w-full text-[12px] h-8 mt-1" onClick={handleFkConnect} disabled={fkConnectingOAuth || fkLoading}>
+                        {fkConnectingOAuth ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Connecting...</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
                       </Button>
                     )
                   ) : (
@@ -3703,6 +4104,946 @@ function IntegrationsContent() {
           )}
         </div>
       )}
+
+      {/* ── TAB: X Ads ── */}
+      {tab === 'x-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Authorize', done: xStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Account', done: xStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: xStatus.step === 'connected' && xCampaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && xStatus.step === 'disconnected') ||
+                (step === 2 && xStatus.step === 'authenticated') ||
+                (step === 3 && xStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                      isCurrent ? 'bg-zinc-700 text-white border border-white/20' :
+                      'bg-brand-card text-brand-text-dim border border-brand-border'
+                    }`}>
+                      {done ? <CheckCircle2 size={14} /> : step}
+                    </div>
+                    <span className={`text-[12px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>
+                      {label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Authorize */}
+          {xStatus.step === 'disconnected' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="p-8 flex flex-col items-center text-center max-w-lg mx-auto">
+                <div className="h-16 w-16 rounded-2xl flex items-center justify-center text-[22px] font-bold text-white mb-5" style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.15)' }}>𝕏</div>
+                <h3 className="text-[18px] font-bold text-white mb-2">Connect your X Ads account</h3>
+                <p className="text-[13px] text-brand-text-muted mb-6 leading-relaxed">
+                  Sign in with X to give AINM access to your advertising campaigns.
+                  You&apos;ll pick which ad account to connect in the next step.
+                </p>
+                <div className="flex flex-col gap-3 w-full mb-6">
+                  {[
+                    { icon: Eye, text: 'View Promoted Ads, Follower Ads, Takeover, and Amplify campaigns' },
+                    { icon: Megaphone, text: 'Create and manage campaigns targeting X\'s global audience' },
+                    { icon: BarChart2, text: 'Pull impressions, engagements, clicks, spend, and conversion data' },
+                    { icon: Lock, text: 'Uses OAuth 2.0 PKCE — your credentials stay server-side only' },
+                  ].map(({ icon: Icon, text }) => (
+                    <div key={text} className="flex items-center gap-3 text-left rounded-lg bg-brand-bg border border-brand-border px-4 py-3">
+                      <Icon size={16} className="text-white shrink-0" />
+                      <span className="text-[12px] text-brand-text-muted">{text}</span>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="default" className="text-[13px] h-11 px-8 bg-black hover:bg-zinc-900 border border-white/20" onClick={handleXConnect} disabled={xConnectingOAuth || xLoading}>
+                  {xConnectingOAuth
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Redirecting to X...</>
+                    : xLoading
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Checking connection...</>
+                    : <>Sign in with X</>
+                  }
+                </Button>
+                <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 PKCE — you can revoke access anytime from X Settings</p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Select Account */}
+          {xStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="border-b border-brand-border px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl flex items-center justify-center text-[14px] font-bold text-white bg-black border border-white/15">𝕏</div>
+                  <div className="flex-1">
+                    <h3 className="text-[15px] font-bold text-white">Select an X Ad Account</h3>
+                    <p className="text-[12px] text-brand-text-muted">Your X profile has access to the ad accounts below.</p>
+                  </div>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleXDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Cancel
+                  </Button>
+                </div>
+              </div>
+              <div className="p-6">
+                {xAccountsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={24} className="animate-spin text-white" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your X Ad accounts...</span>
+                  </div>
+                ) : xAccounts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertCircle size={32} className="mx-auto text-amber-400 mb-3" />
+                    <p className="text-[14px] text-white mb-1">No X Ad accounts found</p>
+                    <p className="text-[12px] text-brand-text-muted mb-4">Your X account doesn&apos;t have access to any ad accounts. Ensure your app has Ads API access.</p>
+                    <div className="flex gap-2 justify-center">
+                      <Button variant="default" className="text-[12px] h-8" onClick={fetchXAccounts}><RefreshCw size={12} className="mr-1.5" /> Retry</Button>
+                      <Button variant="default" className="text-[12px] h-8" onClick={handleXDisconnect}>Try another account</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {xAccounts.map(account => (
+                      <button key={account.id} onClick={() => handleXSelectAccount(account)} disabled={xSelectingAccount !== null}
+                        className="text-left rounded-xl border border-brand-border bg-brand-bg p-4 hover:border-white/30 hover:bg-white/5 transition-all group disabled:opacity-60">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="h-9 w-9 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center">
+                            <Megaphone size={16} className="text-white" />
+                          </div>
+                          {xSelectingAccount === account.id
+                            ? <Loader2 size={16} className="animate-spin text-white" />
+                            : <ChevronRight size={16} className="text-brand-text-dim group-hover:text-white transition-colors" />
+                          }
+                        </div>
+                        <div className="text-[14px] font-semibold text-white mb-1 truncate">{account.name}</div>
+                        {account.business_name && <div className="text-[11px] text-brand-text-muted mb-1">{account.business_name}</div>}
+                        <div className="text-[12px] text-brand-text-muted mb-2 font-mono">ID: {account.id}</div>
+                        <div className="flex items-center gap-3">
+                          {account.currency && <span className="text-[11px] text-brand-text-dim">{account.currency}</span>}
+                          {account.timezone && <span className="text-[11px] text-brand-text-dim">{account.timezone}</span>}
+                          <Badge variant={account.approval_status === 'APPROVED' ? 'ok' : 'warn'}>{account.approval_status}</Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Campaign Dashboard */}
+          {xStatus.step === 'connected' && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl flex items-center justify-center text-[14px] font-bold text-white bg-black border border-white/15">𝕏</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[16px] font-bold text-white">{xStatus.adAccountName || 'X Ads'}</h2>
+                      <Badge variant="ok">Connected</Badge>
+                    </div>
+                    <div className="text-[12px] text-brand-text-muted mt-0.5">
+                      Account ID: {xStatus.adAccountId}
+                      {xStatus.connectedAt && <> &middot; Connected {new Date(xStatus.connectedAt).toLocaleDateString()}</>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="default" className="text-[12px] h-8" onClick={fetchXCampaigns} disabled={xCampaignsLoading}>
+                    <RefreshCw size={12} className={`mr-1.5 ${xCampaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleXDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Disconnect
+                  </Button>
+                </div>
+              </div>
+
+              {xCampaigns.length > 0 && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  {[
+                    { label: 'Campaigns', value: xCampaigns.length.toString(), icon: Megaphone, color: 'text-white' },
+                    { label: 'Impressions', value: formatNumber(xCampaigns.reduce((a, c) => a + c.metrics.impressions, 0)), icon: Eye, color: 'text-purple-400' },
+                    { label: 'Engagements', value: formatNumber(xCampaigns.reduce((a, c) => a + c.metrics.engagements, 0)), icon: MousePointerClick, color: 'text-emerald-400' },
+                    { label: 'Clicks', value: formatNumber(xCampaigns.reduce((a, c) => a + c.metrics.clicks, 0)), icon: Target, color: 'text-blue-400' },
+                    { label: 'Spend', value: `$${xCampaigns.reduce((a, c) => a + c.metrics.spend, 0).toFixed(2)}`, icon: DollarSign, color: 'text-amber-400' },
+                  ].map(({ label, value, icon: Icon, color }) => (
+                    <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon size={14} className={color} />
+                        <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                      </div>
+                      <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[14px] font-semibold text-white">X Campaigns (Last 30 Days)</h3>
+                  <span className="text-[11px] text-brand-text-dim">{xCampaigns.length} campaigns</span>
+                </div>
+                {xCampaignsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 size={24} className="animate-spin text-white" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from X...</span>
+                  </div>
+                ) : xCampaigns.length === 0 ? (
+                  <div className="text-center py-16">
+                    <Megaphone size={32} className="mx-auto text-brand-text-dim mb-3" />
+                    <p className="text-[14px] text-brand-text-muted mb-1">No campaigns found</p>
+                    <p className="text-[12px] text-brand-text-dim">Create your first campaign or check the connected account.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-brand-border text-[11px] uppercase tracking-wider text-brand-text-muted">
+                          <th className="pb-3 pr-4 font-medium">Campaign</th>
+                          <th className="pb-3 px-3 font-medium">Status</th>
+                          <th className="pb-3 px-3 font-medium">Objective</th>
+                          <th className="pb-3 px-3 font-medium text-right">Impressions</th>
+                          <th className="pb-3 px-3 font-medium text-right">Engagements</th>
+                          <th className="pb-3 px-3 font-medium text-right">CTR</th>
+                          <th className="pb-3 px-3 font-medium text-right">CPE</th>
+                          <th className="pb-3 pl-3 font-medium text-right">Spend</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {xCampaigns.map(c => {
+                          const sc = c.status === 'ACTIVE' ? 'text-emerald-400' : c.status === 'PAUSED' ? 'text-amber-400' : 'text-brand-text-dim';
+                          return (
+                            <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-sidebar-hover/50 transition-colors">
+                              <td className="py-3 pr-4">
+                                <div className="text-[13px] font-medium text-white max-w-[260px] truncate">{c.name}</div>
+                                <div className="text-[11px] text-brand-text-dim">ID: {c.id}</div>
+                              </td>
+                              <td className="py-3 px-3"><span className={`text-[12px] font-medium ${sc}`}>{c.status}</span></td>
+                              <td className="py-3 px-3 text-[12px] text-brand-text-muted">{c.objective.replace(/_/g, ' ')}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.impressions)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.engagements)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">{formatPercent(c.metrics.ctr)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">${c.metrics.cpe.toFixed(2)}</td>
+                              <td className="py-3 pl-3 text-right text-[13px] text-white tabular-nums">${c.metrics.spend.toFixed(2)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <XAdsCreateCampaignForm onCreated={fetchXCampaigns} />
+
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Campaigns:</strong> <code className="text-white/70">GET|POST /api/integrations/x-ads/campaigns</code> — /9/accounts/&#123;id&#125;/campaigns</p>
+                  <p><strong className="text-brand-text-muted">Accounts:</strong> <code className="text-white/70">GET /api/integrations/x-ads/accessible-accounts</code> — /9/accounts</p>
+                  <p><strong className="text-brand-text-muted">Stats:</strong> <code className="text-white/70">GET /9/stats/accounts/&#123;id&#125;</code> — TOTAL granularity, last 30 days</p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 PKCE — access + refresh token via api.twitter.com/2/oauth2/token</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: Reddit Ads ── */}
+      {tab === 'reddit-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Authorize', done: rdStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Account', done: rdStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: rdStatus.step === 'connected' && rdCampaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && rdStatus.step === 'disconnected') ||
+                (step === 2 && rdStatus.step === 'authenticated') ||
+                (step === 3 && rdStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                      isCurrent ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
+                      'bg-brand-card text-brand-text-dim border border-brand-border'
+                    }`}>
+                      {done ? <CheckCircle2 size={14} /> : step}
+                    </div>
+                    <span className={`text-[12px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>
+                      {label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Authorize */}
+          {rdStatus.step === 'disconnected' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="p-8 flex flex-col items-center text-center max-w-lg mx-auto">
+                <div className="h-16 w-16 rounded-2xl flex items-center justify-center text-[22px] font-bold text-white mb-5" style={{ background: 'linear-gradient(135deg, #FF4500 0%, #FF6534 100%)' }}>Rd</div>
+                <h3 className="text-[18px] font-bold text-white mb-2">Connect your Reddit Ads account</h3>
+                <p className="text-[13px] text-brand-text-muted mb-6 leading-relaxed">
+                  Sign in with Reddit to give AINM access to your advertising campaigns.
+                  You&apos;ll pick which ad account to connect in the next step.
+                </p>
+                <div className="flex flex-col gap-3 w-full mb-6">
+                  {[
+                    { icon: Eye, text: 'View campaigns across Brand Awareness, Traffic, Conversions, and App Install objectives' },
+                    { icon: Megaphone, text: 'Create and manage campaigns targeting Reddit communities (subreddits)' },
+                    { icon: BarChart2, text: 'Pull impressions, clicks, spend, CTR, CPC, and video completion data' },
+                    { icon: Lock, text: 'Your credentials stay server-side — never exposed to the browser' },
+                  ].map(({ icon: Icon, text }) => (
+                    <div key={text} className="flex items-center gap-3 text-left rounded-lg bg-brand-bg border border-brand-border px-4 py-3">
+                      <Icon size={16} className="text-orange-400 shrink-0" />
+                      <span className="text-[12px] text-brand-text-muted">{text}</span>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="default" className="text-[13px] h-11 px-8" onClick={handleRedditConnect} disabled={rdConnectingOAuth || rdLoading}>
+                  {rdConnectingOAuth
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Redirecting to Reddit...</>
+                    : rdLoading
+                    ? <><Loader2 size={14} className="animate-spin mr-2" /> Checking connection...</>
+                    : <>Sign in with Reddit</>
+                  }
+                </Button>
+                <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 — you can revoke access anytime from Reddit app preferences</p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Select Account */}
+          {rdStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+              <div className="border-b border-brand-border px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-bold text-white" style={{ background: 'linear-gradient(135deg, #FF4500 0%, #FF6534 100%)' }}>Rd</div>
+                  <div className="flex-1">
+                    <h3 className="text-[15px] font-bold text-white">Select a Reddit Ad Account</h3>
+                    <p className="text-[12px] text-brand-text-muted">Your Reddit account has access to the ad accounts below.</p>
+                  </div>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleRedditDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Cancel
+                  </Button>
+                </div>
+              </div>
+              <div className="p-6">
+                {rdAccountsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={24} className="animate-spin text-orange-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your Reddit Ad accounts...</span>
+                  </div>
+                ) : rdAccounts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertCircle size={32} className="mx-auto text-amber-400 mb-3" />
+                    <p className="text-[14px] text-white mb-1">No Reddit Ad accounts found</p>
+                    <p className="text-[12px] text-brand-text-muted mb-4">Your Reddit account doesn&apos;t have access to any ad accounts.</p>
+                    <div className="flex gap-2 justify-center">
+                      <Button variant="default" className="text-[12px] h-8" onClick={fetchRdAccounts}><RefreshCw size={12} className="mr-1.5" /> Retry</Button>
+                      <Button variant="default" className="text-[12px] h-8" onClick={handleRedditDisconnect}>Try another account</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {rdAccounts.map(account => (
+                      <button key={account.id} onClick={() => handleRdSelectAccount(account)} disabled={rdSelectingAccount !== null}
+                        className="text-left rounded-xl border border-brand-border bg-brand-bg p-4 hover:border-orange-500/40 hover:bg-orange-500/5 transition-all group disabled:opacity-60">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="h-9 w-9 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+                            <Megaphone size={16} className="text-orange-400" />
+                          </div>
+                          {rdSelectingAccount === account.id
+                            ? <Loader2 size={16} className="animate-spin text-orange-400" />
+                            : <ChevronRight size={16} className="text-brand-text-dim group-hover:text-orange-400 transition-colors" />
+                          }
+                        </div>
+                        <div className="text-[14px] font-semibold text-white mb-1 truncate">{account.name}</div>
+                        <div className="text-[12px] text-brand-text-muted mb-2 font-mono">ID: {account.id}</div>
+                        <div className="flex items-center gap-3">
+                          {account.currency && <span className="text-[11px] text-brand-text-dim">{account.currency}</span>}
+                          {account.timezone && <span className="text-[11px] text-brand-text-dim">{account.timezone}</span>}
+                          <Badge variant={account.status === 'ACTIVE' ? 'ok' : 'warn'}>{account.status}</Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Campaign Dashboard */}
+          {rdStatus.step === 'connected' && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-bold text-white" style={{ background: 'linear-gradient(135deg, #FF4500 0%, #FF6534 100%)' }}>Rd</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[16px] font-bold text-white">{rdStatus.adAccountName || 'Reddit Ads'}</h2>
+                      <Badge variant="ok">Connected</Badge>
+                    </div>
+                    <div className="text-[12px] text-brand-text-muted mt-0.5">
+                      Account ID: {rdStatus.adAccountId}
+                      {rdStatus.connectedAt && <> &middot; Connected {new Date(rdStatus.connectedAt).toLocaleDateString()}</>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="default" className="text-[12px] h-8" onClick={fetchRdCampaigns} disabled={rdCampaignsLoading}>
+                    <RefreshCw size={12} className={`mr-1.5 ${rdCampaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleRedditDisconnect}>
+                    <Unplug size={12} className="mr-1.5" /> Disconnect
+                  </Button>
+                </div>
+              </div>
+
+              {rdCampaigns.length > 0 && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  {[
+                    { label: 'Campaigns', value: rdCampaigns.length.toString(), icon: Megaphone, color: 'text-orange-400' },
+                    { label: 'Impressions', value: formatNumber(rdCampaigns.reduce((a, c) => a + c.metrics.impressions, 0)), icon: Eye, color: 'text-purple-400' },
+                    { label: 'Clicks', value: formatNumber(rdCampaigns.reduce((a, c) => a + c.metrics.clicks, 0)), icon: MousePointerClick, color: 'text-emerald-400' },
+                    { label: 'Spend', value: `$${(rdCampaigns.reduce((a, c) => a + c.metrics.spend_cents, 0) / 100).toFixed(2)}`, icon: DollarSign, color: 'text-amber-400' },
+                    { label: 'Video Completions', value: formatNumber(rdCampaigns.reduce((a, c) => a + c.metrics.video_completions, 0)), icon: TrendingUp, color: 'text-rose-400' },
+                  ].map(({ label, value, icon: Icon, color }) => (
+                    <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon size={14} className={color} />
+                        <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                      </div>
+                      <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[14px] font-semibold text-white">Reddit Campaigns (Last 30 Days)</h3>
+                  <span className="text-[11px] text-brand-text-dim">{rdCampaigns.length} campaigns</span>
+                </div>
+                {rdCampaignsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 size={24} className="animate-spin text-orange-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from Reddit...</span>
+                  </div>
+                ) : rdCampaigns.length === 0 ? (
+                  <div className="text-center py-16">
+                    <Megaphone size={32} className="mx-auto text-brand-text-dim mb-3" />
+                    <p className="text-[14px] text-brand-text-muted mb-1">No campaigns found</p>
+                    <p className="text-[12px] text-brand-text-dim">Create your first campaign or check the connected account.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-brand-border text-[11px] uppercase tracking-wider text-brand-text-muted">
+                          <th className="pb-3 pr-4 font-medium">Campaign</th>
+                          <th className="pb-3 px-3 font-medium">Status</th>
+                          <th className="pb-3 px-3 font-medium">Objective</th>
+                          <th className="pb-3 px-3 font-medium text-right">Impressions</th>
+                          <th className="pb-3 px-3 font-medium text-right">Clicks</th>
+                          <th className="pb-3 px-3 font-medium text-right">CTR</th>
+                          <th className="pb-3 px-3 font-medium text-right">CPC</th>
+                          <th className="pb-3 pl-3 font-medium text-right">Spend</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rdCampaigns.map(c => {
+                          const sc = c.status === 'ACTIVE' ? 'text-emerald-400' : c.status === 'PAUSED' ? 'text-amber-400' : 'text-brand-text-dim';
+                          return (
+                            <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-sidebar-hover/50 transition-colors">
+                              <td className="py-3 pr-4">
+                                <div className="text-[13px] font-medium text-white max-w-[260px] truncate">{c.name}</div>
+                                <div className="text-[11px] text-brand-text-dim">ID: {c.id}</div>
+                              </td>
+                              <td className="py-3 px-3"><span className={`text-[12px] font-medium ${sc}`}>{c.status}</span></td>
+                              <td className="py-3 px-3 text-[12px] text-brand-text-muted">{c.objective.replace(/_/g, ' ')}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.impressions)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-white tabular-nums">{formatNumber(c.metrics.clicks)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">{formatPercent(c.metrics.ctr)}</td>
+                              <td className="py-3 px-3 text-right text-[13px] text-brand-text-muted tabular-nums">${(c.metrics.cpc_cents / 100).toFixed(2)}</td>
+                              <td className="py-3 pl-3 text-right text-[13px] text-white tabular-nums">${(c.metrics.spend_cents / 100).toFixed(2)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <RedditAdsCreateCampaignForm onCreated={fetchRdCampaigns} />
+
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Campaigns:</strong> <code className="text-orange-400">GET|POST /api/integrations/reddit-ads/campaigns</code> — /api/v2.0/campaigns</p>
+                  <p><strong className="text-brand-text-muted">Accounts:</strong> <code className="text-orange-400">GET /api/integrations/reddit-ads/accessible-accounts</code> — /api/v2.0/accounts</p>
+                  <p><strong className="text-brand-text-muted">Analytics:</strong> <code className="text-orange-400">GET /api/v2.0/campaigns/analytics</code> — last 30 days by campaign</p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 (permanent) — access + refresh token via reddit.com/api/v1/access_token</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: Apple Search Ads ── */}
+      {tab === 'apple-search-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Connect', done: aplStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Org', done: aplStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: aplStatus.step === 'connected' && aplCampaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && aplStatus.step === 'disconnected') ||
+                (step === 2 && aplStatus.step === 'authenticated') ||
+                (step === 3 && aplStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500 text-white' : isCurrent ? 'bg-blue-500 text-white' : 'bg-brand-card border border-brand-border text-brand-text-dim'
+                    }`}>{done ? <CheckCircle2 size={13} /> : step}</div>
+                    <span className={`text-[11px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>{label}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Connect */}
+          {aplStatus.step === 'disconnected' && !aplLoading && (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="h-16 w-16 rounded-2xl flex items-center justify-center mb-5 text-white text-2xl font-bold" style={{ background: 'linear-gradient(135deg, #555, #111)' }}>
+                🍎
+              </div>
+              <h3 className="text-[18px] font-bold text-white mb-2">Connect your Apple Search Ads account</h3>
+              <p className="text-[13px] text-brand-text-muted mb-6 max-w-md">
+                Use your Apple Search Ads API credentials to connect. Configure your Client ID, Team ID, Key ID, and private key in <code className="text-blue-400">.env.local</code> first.
+              </p>
+              <ul className="text-[12px] text-brand-text-muted mb-8 space-y-2 text-left max-w-sm">
+                {[
+                  { icon: Megaphone, text: 'Promote your iOS/macOS apps on Apple\'s App Store search results' },
+                  { icon: BarChart2, text: 'Track impressions, taps, conversions, and cost-per-tap metrics' },
+                  { icon: Target, text: 'Manage campaigns across multiple organizations' },
+                ].map(({ icon: Icon, text }) => (
+                  <li key={text} className="flex items-start gap-2">
+                    <Icon size={13} className="text-gray-400 mt-0.5 shrink-0" />
+                    <span>{text}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button variant="default" className="text-[13px] h-11 px-8 bg-zinc-800 border border-white/20 hover:bg-zinc-700" onClick={handleAplConnect} disabled={aplConnecting}>
+                {aplConnecting
+                  ? <><Loader2 size={14} className="animate-spin mr-2" /> Connecting...</>
+                  : <>Connect Apple Search Ads</>}
+              </Button>
+              <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 client credentials — JWT signed with your ES256 private key</p>
+            </div>
+          )}
+
+          {/* Step 2: Select Org */}
+          {aplStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-[15px] font-bold text-white">Select an Apple Search Ads Organization</h3>
+                  <p className="text-[12px] text-brand-text-muted">Your Apple Search Ads account has access to the organizations below.</p>
+                </div>
+                <Button variant="default" className="text-[12px] h-8" onClick={handleAplDisconnect}>
+                  <Unplug size={12} className="mr-1.5" /> Disconnect
+                </Button>
+              </div>
+              {aplOrgsLoading ? (
+                <div className="flex items-center py-6">
+                  <Loader2 size={16} className="animate-spin text-gray-400" />
+                  <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your organizations...</span>
+                </div>
+              ) : aplOrgs.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-[14px] text-white mb-1">No organizations found</p>
+                  <p className="text-[12px] text-brand-text-muted mb-4">Your Apple Search Ads account doesn&apos;t have access to any organizations.</p>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleAplDisconnect}>Try again</Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {aplOrgs.map(org => (
+                    <div key={org.orgId} className="flex items-center justify-between p-3 rounded-lg border border-brand-border hover:border-gray-500/50 transition-colors">
+                      <div>
+                        <div className="text-[13px] font-semibold text-white">{org.orgName}</div>
+                        <div className="text-[11px] text-brand-text-muted">ID: {org.orgId} · {org.currency} · {org.timeZone}</div>
+                        <div className="text-[11px] text-brand-text-dim mt-0.5">{org.roleNames.join(', ') || 'No roles'}</div>
+                      </div>
+                      <Button variant="default" className="text-[12px] h-8 px-4 bg-zinc-800 hover:bg-zinc-700" onClick={() => handleAplSelectOrg(org)} disabled={aplSelectingOrg === String(org.orgId)}>
+                        {aplSelectingOrg === String(org.orgId) ? <Loader2 size={12} className="animate-spin" /> : 'Select'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 3: Connected */}
+          {aplStatus.step === 'connected' && (
+            <>
+              {/* Account header */}
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl flex items-center justify-center text-lg" style={{ background: 'linear-gradient(135deg, #555, #111)' }}>
+                      🍎
+                    </div>
+                    <div>
+                      <h2 className="text-[16px] font-bold text-white">{aplStatus.orgName || 'Apple Search Ads'}</h2>
+                      <p className="text-[12px] text-brand-text-muted">Org ID: {aplStatus.orgId}</p>
+                    </div>
+                    <Badge variant="success" className="text-[10px] h-5">Connected</Badge>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="default" className="text-[12px] h-8" onClick={fetchAplCampaigns} disabled={aplCampaignsLoading}>
+                      <RefreshCw size={12} className={`mr-1.5 ${aplCampaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                    </Button>
+                    <Button variant="default" className="text-[12px] h-8" onClick={handleAplDisconnect}>
+                      <Unplug size={12} className="mr-1.5" /> Disconnect
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* KPIs */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { label: 'Impressions', value: aplCampaigns.reduce((a, c) => a + c.metrics.impressions, 0).toLocaleString(), icon: Eye, color: 'text-blue-400' },
+                  { label: 'Taps', value: aplCampaigns.reduce((a, c) => a + c.metrics.taps, 0).toLocaleString(), icon: MousePointerClick, color: 'text-emerald-400' },
+                  { label: 'Conversions', value: aplCampaigns.reduce((a, c) => a + c.metrics.conversions, 0).toLocaleString(), icon: TrendingUp, color: 'text-purple-400' },
+                  { label: 'Total Spend', value: `$${aplCampaigns.reduce((a, c) => a + c.metrics.spend, 0).toFixed(2)}`, icon: DollarSign, color: 'text-amber-400' },
+                ].map(({ label, value, icon: Icon, color }) => (
+                  <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Icon size={14} className={color} />
+                      <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                    </div>
+                    <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Campaigns table */}
+              <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+                <div className="flex items-center justify-between p-4 border-b border-brand-border">
+                  <h3 className="text-[14px] font-semibold text-white">Apple Search Ads Campaigns (Last 30 Days)</h3>
+                  <Badge variant="default" className="text-[10px]">{aplCampaigns.length} campaign{aplCampaigns.length !== 1 ? 's' : ''}</Badge>
+                </div>
+                {aplCampaignsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={16} className="animate-spin text-gray-400" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from Apple Search Ads...</span>
+                  </div>
+                ) : aplCampaigns.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-[14px] text-white mb-1">No campaigns found</p>
+                    <p className="text-[12px] text-brand-text-muted">Create your first Apple Search Ads campaign below.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[12px]">
+                      <thead>
+                        <tr className="border-b border-brand-border text-brand-text-dim text-left">
+                          <th className="px-4 py-3 font-medium">Campaign</th>
+                          <th className="px-4 py-3 font-medium">Status</th>
+                          <th className="px-4 py-3 font-medium text-right">Impressions</th>
+                          <th className="px-4 py-3 font-medium text-right">Taps</th>
+                          <th className="px-4 py-3 font-medium text-right">TTR</th>
+                          <th className="px-4 py-3 font-medium text-right">CPT</th>
+                          <th className="px-4 py-3 font-medium text-right">Conversions</th>
+                          <th className="px-4 py-3 font-medium text-right">Spend</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aplCampaigns.map(c => (
+                          <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-card-hover transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-white">{c.name}</div>
+                              <div className="text-brand-text-dim text-[11px]">App ID: {c.adamId} · {c.countriesOrRegions.join(', ')}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant={c.status === 'ENABLED' ? 'success' : 'default'} className="text-[10px] h-4">
+                                {c.servingStatus || c.status}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.impressions.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.taps.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{(c.metrics.ttr * 100).toFixed(2)}%</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">${c.metrics.cpt.toFixed(2)}</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.conversions.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right font-medium text-white">${c.metrics.spend.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <AppleSearchAdsCreateCampaignForm onCreated={fetchAplCampaigns} />
+
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Campaigns:</strong> <code className="text-gray-400">GET|POST /api/integrations/apple-search-ads/campaigns</code> — /api/v5/campaigns</p>
+                  <p><strong className="text-brand-text-muted">Organizations:</strong> <code className="text-gray-400">GET /api/integrations/apple-search-ads/accessible-accounts</code> — /api/v5/acls</p>
+                  <p><strong className="text-brand-text-muted">Analytics:</strong> <code className="text-gray-400">POST /api/v5/reports/campaigns</code> — last 30 days, TOTAL granularity</p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 client credentials — ES256 JWT signed with private key, 1-hour access token</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: Flipkart Ads ── */}
+      {tab === 'flipkart-ads' && (
+        <div className="flex flex-col gap-5">
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-0">
+            {[
+              { step: 1, label: 'Authorize', done: fkStatus.step !== 'disconnected' },
+              { step: 2, label: 'Select Advertiser', done: fkStatus.step === 'connected' },
+              { step: 3, label: 'View Campaigns', done: fkStatus.step === 'connected' && fkCampaigns.length > 0 },
+            ].map(({ step, label, done }, i) => {
+              const isCurrent =
+                (step === 1 && fkStatus.step === 'disconnected') ||
+                (step === 2 && fkStatus.step === 'authenticated') ||
+                (step === 3 && fkStatus.step === 'connected');
+              return (
+                <div key={step} className="flex items-center">
+                  {i > 0 && <div className={`w-8 h-px ${done ? 'bg-emerald-500' : 'bg-brand-border'} mx-1`} />}
+                  <div className="flex items-center gap-2">
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 transition-colors ${
+                      done ? 'bg-emerald-500 text-white' : isCurrent ? 'bg-[#2874F0] text-white' : 'bg-brand-card border border-brand-border text-brand-text-dim'
+                    }`}>{done ? <CheckCircle2 size={13} /> : step}</div>
+                    <span className={`text-[11px] font-medium ${isCurrent ? 'text-white' : done ? 'text-emerald-400' : 'text-brand-text-dim'}`}>{label}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Authorize */}
+          {fkStatus.step === 'disconnected' && !fkLoading && (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="h-16 w-16 rounded-2xl flex items-center justify-center mb-5 text-white text-2xl font-bold" style={{ background: '#2874F0' }}>
+                Fk
+              </div>
+              <h3 className="text-[18px] font-bold text-white mb-2">Connect your Flipkart Ads account</h3>
+              <p className="text-[13px] text-brand-text-muted mb-6 max-w-md">
+                Sign in with your Flipkart Seller account to give AINM access to your advertising campaigns on India&apos;s largest e-commerce platform.
+              </p>
+              <ul className="text-[12px] text-brand-text-muted mb-8 space-y-2 text-left max-w-sm">
+                {[
+                  { icon: ShoppingCart, text: 'Run Sponsored Products and Sponsored Brands campaigns on Flipkart' },
+                  { icon: BarChart2, text: 'Track impressions, clicks, orders, ROAS, and ACoS metrics' },
+                  { icon: Target, text: 'Manage keyword targeting and bid optimization at scale' },
+                ].map(({ icon: Icon, text }) => (
+                  <li key={text} className="flex items-start gap-2">
+                    <Icon size={13} className="text-[#2874F0] mt-0.5 shrink-0" />
+                    <span>{text}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button variant="default" className="text-[13px] h-11 px-8 bg-[#2874F0] hover:bg-blue-600 border-0" onClick={handleFkConnect} disabled={fkConnectingOAuth}>
+                {fkConnectingOAuth
+                  ? <><Loader2 size={14} className="animate-spin mr-2" /> Redirecting to Flipkart...</>
+                  : <>Sign in with Flipkart</>}
+              </Button>
+              <p className="text-[11px] text-brand-text-dim mt-3">Uses OAuth 2.0 — you can revoke access anytime from your Flipkart Seller account settings</p>
+            </div>
+          )}
+
+          {/* Step 2: Select Advertiser */}
+          {fkStatus.step === 'authenticated' && (
+            <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-[15px] font-bold text-white">Select a Flipkart Advertiser Account</h3>
+                  <p className="text-[12px] text-brand-text-muted">Your Flipkart account has access to the advertiser accounts below.</p>
+                </div>
+                <Button variant="default" className="text-[12px] h-8" onClick={handleFkDisconnect}>
+                  <Unplug size={12} className="mr-1.5" /> Disconnect
+                </Button>
+              </div>
+              {fkAdvertisersLoading ? (
+                <div className="flex items-center py-6">
+                  <Loader2 size={16} className="animate-spin text-[#2874F0]" />
+                  <span className="ml-3 text-[13px] text-brand-text-muted">Fetching your Flipkart advertiser accounts...</span>
+                </div>
+              ) : fkAdvertisers.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-[14px] text-white mb-1">No advertiser accounts found</p>
+                  <p className="text-[12px] text-brand-text-muted mb-4">Your Flipkart account doesn&apos;t have access to any advertiser accounts.</p>
+                  <Button variant="default" className="text-[12px] h-8" onClick={handleFkDisconnect}>Try another account</Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {fkAdvertisers.map(adv => (
+                    <div key={adv.id} className="flex items-center justify-between p-3 rounded-lg border border-brand-border hover:border-blue-500/30 transition-colors">
+                      <div>
+                        <div className="text-[13px] font-semibold text-white">{adv.name}</div>
+                        <div className="text-[11px] text-brand-text-muted">ID: {adv.id} · {adv.currency} · {adv.timezone}</div>
+                        <div className="text-[11px] text-brand-text-dim mt-0.5">{adv.status}</div>
+                      </div>
+                      <Button variant="default" className="text-[12px] h-8 px-4 bg-[#2874F0] hover:bg-blue-600 border-0" onClick={() => handleFkSelectAccount(adv)} disabled={fkSelectingAccount === adv.id}>
+                        {fkSelectingAccount === adv.id ? <Loader2 size={12} className="animate-spin" /> : 'Select'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 3: Connected */}
+          {fkStatus.step === 'connected' && (
+            <>
+              {/* Account header */}
+              <div className="rounded-xl border border-brand-border bg-brand-card p-5">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl flex items-center justify-center text-white font-bold text-sm" style={{ background: '#2874F0' }}>
+                      Fk
+                    </div>
+                    <div>
+                      <h2 className="text-[16px] font-bold text-white">{fkStatus.advertiserName || 'Flipkart Ads'}</h2>
+                      <p className="text-[12px] text-brand-text-muted">Advertiser ID: {fkStatus.advertiserId}</p>
+                    </div>
+                    <Badge variant="success" className="text-[10px] h-5">Connected</Badge>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="default" className="text-[12px] h-8" onClick={fetchFkCampaigns} disabled={fkCampaignsLoading}>
+                      <RefreshCw size={12} className={`mr-1.5 ${fkCampaignsLoading ? 'animate-spin' : ''}`} /> Refresh
+                    </Button>
+                    <Button variant="default" className="text-[12px] h-8" onClick={handleFkDisconnect}>
+                      <Unplug size={12} className="mr-1.5" /> Disconnect
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* KPIs */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {[
+                  { label: 'Campaigns', value: fkCampaigns.length.toString(), icon: Megaphone, color: 'text-[#2874F0]' },
+                  { label: 'Impressions', value: fkCampaigns.reduce((a, c) => a + c.metrics.impressions, 0).toLocaleString(), icon: Eye, color: 'text-purple-400' },
+                  { label: 'Clicks', value: fkCampaigns.reduce((a, c) => a + c.metrics.clicks, 0).toLocaleString(), icon: MousePointerClick, color: 'text-emerald-400' },
+                  { label: 'Orders', value: fkCampaigns.reduce((a, c) => a + c.metrics.orders, 0).toLocaleString(), icon: ShoppingCart, color: 'text-amber-400' },
+                  { label: 'Spend (INR)', value: `₹${fkCampaigns.reduce((a, c) => a + c.metrics.spend, 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, icon: DollarSign, color: 'text-rose-400' },
+                ].map(({ label, value, icon: Icon, color }) => (
+                  <div key={label} className="rounded-xl border border-brand-border bg-brand-card px-4 py-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Icon size={14} className={color} />
+                      <span className="text-[11px] uppercase tracking-wider text-brand-text-muted font-medium">{label}</span>
+                    </div>
+                    <div className="text-[22px] font-bold text-white leading-none">{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Campaigns table */}
+              <div className="rounded-xl border border-brand-border bg-brand-card overflow-hidden">
+                <div className="flex items-center justify-between p-4 border-b border-brand-border">
+                  <h3 className="text-[14px] font-semibold text-white">Flipkart Campaigns (Last 30 Days)</h3>
+                  <Badge variant="default" className="text-[10px]">{fkCampaigns.length} campaign{fkCampaigns.length !== 1 ? 's' : ''}</Badge>
+                </div>
+                {fkCampaignsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={16} className="animate-spin text-[#2874F0]" />
+                    <span className="ml-3 text-[13px] text-brand-text-muted">Loading campaigns from Flipkart...</span>
+                  </div>
+                ) : fkCampaigns.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-[14px] text-white mb-1">No campaigns found</p>
+                    <p className="text-[12px] text-brand-text-muted">Create your first Flipkart campaign below.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[12px]">
+                      <thead>
+                        <tr className="border-b border-brand-border text-brand-text-dim text-left">
+                          <th className="px-4 py-3 font-medium">Campaign</th>
+                          <th className="px-4 py-3 font-medium">Type</th>
+                          <th className="px-4 py-3 font-medium">Status</th>
+                          <th className="px-4 py-3 font-medium text-right">Impressions</th>
+                          <th className="px-4 py-3 font-medium text-right">Clicks</th>
+                          <th className="px-4 py-3 font-medium text-right">CTR</th>
+                          <th className="px-4 py-3 font-medium text-right">Orders</th>
+                          <th className="px-4 py-3 font-medium text-right">ROAS</th>
+                          <th className="px-4 py-3 font-medium text-right">Spend (INR)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fkCampaigns.map(c => (
+                          <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-card-hover transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-white">{c.name}</div>
+                              {c.dailyBudget && <div className="text-brand-text-dim text-[11px]">Daily: ₹{c.dailyBudget.toLocaleString('en-IN')}</div>}
+                            </td>
+                            <td className="px-4 py-3 text-brand-text-muted">{c.type.replace('_', ' ')}</td>
+                            <td className="px-4 py-3">
+                              <Badge variant={c.status === 'ACTIVE' ? 'success' : 'default'} className="text-[10px] h-4">
+                                {c.status}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.impressions.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.clicks.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{(c.metrics.ctr * 100).toFixed(2)}%</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.orders.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-brand-text-muted">{c.metrics.roas.toFixed(2)}x</td>
+                            <td className="px-4 py-3 text-right font-medium text-white">₹{c.metrics.spend.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <FlipkartAdsCreateCampaignForm onCreated={fetchFkCampaigns} />
+
+              <div className="rounded-xl border border-brand-border/50 bg-brand-card/50 p-4">
+                <div className="text-[11px] text-brand-text-dim space-y-1">
+                  <p><strong className="text-brand-text-muted">Campaigns:</strong> <code className="text-[#2874F0]">GET|POST /api/integrations/flipkart-ads/campaigns</code> — /ads/api/v1/campaigns</p>
+                  <p><strong className="text-brand-text-muted">Advertisers:</strong> <code className="text-[#2874F0]">GET /api/integrations/flipkart-ads/accessible-accounts</code> — /ads/api/v1/advertisers</p>
+                  <p><strong className="text-brand-text-muted">Analytics:</strong> <code className="text-[#2874F0]">GET /ads/api/v1/reports/campaign</code> — last 30 days, TOTAL granularity</p>
+                  <p><strong className="text-brand-text-muted">Auth:</strong> OAuth 2.0 (authorization code) — access + refresh token via flipkart.net/oauth-service/oauth/token</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -4706,6 +6047,404 @@ function TikTokCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
         </div>
         <div className="sm:col-span-2 flex items-center gap-3 pt-2">
           <Button type="submit" variant="default" className="text-[12px] h-9 px-5" disabled={creating || !form.campaign_name}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── X Ads Create Campaign Form ───────────────────────────────────────────────
+
+function XAdsCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [form, setForm] = useState<{
+    name: string;
+    objective: 'AWARENESS' | 'TWEET_ENGAGEMENTS' | 'WEBSITE_CLICKS' | 'APP_INSTALLS' | 'VIDEO_VIEWS' | 'FOLLOWERS' | 'LEAD_GENERATION';
+    status: 'ACTIVE' | 'PAUSED';
+  }>({
+    name: '',
+    objective: 'WEBSITE_CLICKS',
+    status: 'PAUSED',
+  });
+  const [dailyBudgetDollars, setDailyBudgetDollars] = useState('');
+  const [totalBudgetDollars, setTotalBudgetDollars] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  function updateField<K extends keyof typeof form>(key: K, value: typeof form[K]) {
+    setForm(f => ({ ...f, [key]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCreating(true);
+    setError('');
+    setSuccess(false);
+    try {
+      const payload: any = { name: form.name, objective: form.objective, status: form.status };
+      if (dailyBudgetDollars) payload.daily_budget_amount_local_micro = Math.round(parseFloat(dailyBudgetDollars) * 1_000_000);
+      if (totalBudgetDollars) payload.total_budget_amount_local_micro = Math.round(parseFloat(totalBudgetDollars) * 1_000_000);
+      const res = await fetch('/api/integrations/x-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || 'Failed to create campaign');
+      }
+      setSuccess(true);
+      setForm({ name: '', objective: 'WEBSITE_CLICKS', status: 'PAUSED' });
+      setDailyBudgetDollars('');
+      setTotalBudgetDollars('');
+      onCreated();
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const inputClass = 'w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 text-[13px] text-white placeholder-white/30 focus:border-white/30 focus:outline-none transition-colors';
+  const labelClass = 'text-[11px] uppercase tracking-wider text-brand-text-muted font-medium mb-1.5 block';
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+      <h3 className="text-[14px] font-semibold text-white mb-4">Create X Campaign</h3>
+      <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Brand Awareness – X" value={form.name} onChange={e => updateField('name', e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Objective</label>
+          <select className={inputClass} value={form.objective} onChange={e => updateField('objective', e.target.value as any)}>
+            <option value="AWARENESS">Awareness</option>
+            <option value="TWEET_ENGAGEMENTS">Tweet Engagements</option>
+            <option value="WEBSITE_CLICKS">Website Clicks</option>
+            <option value="APP_INSTALLS">App Installs</option>
+            <option value="VIDEO_VIEWS">Video Views</option>
+            <option value="FOLLOWERS">Followers</option>
+            <option value="LEAD_GENERATION">Lead Generation</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={form.status} onChange={e => updateField('status', e.target.value as any)}>
+            <option value="PAUSED">Paused (recommended)</option>
+            <option value="ACTIVE">Active</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Daily Budget (USD, optional)</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 50.00" value={dailyBudgetDollars} onChange={e => setDailyBudgetDollars(e.target.value)} />
+        </div>
+        <div>
+          <label className={labelClass}>Total Budget (USD, optional)</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 1000.00" value={totalBudgetDollars} onChange={e => setTotalBudgetDollars(e.target.value)} />
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5 bg-black border border-white/20 hover:bg-zinc-900" disabled={creating || !form.name}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── Reddit Ads Create Campaign Form ────────────────────────────────────────
+function RedditAdsCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [form, setForm] = useState<{
+    name: string;
+    objective: string;
+    status: 'ACTIVE' | 'PAUSED';
+  }>({ name: '', objective: 'BRAND_AWARENESS', status: 'PAUSED' });
+  const [dailyBudgetDollars, setDailyBudgetDollars] = useState('');
+  const [totalBudgetDollars, setTotalBudgetDollars] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const updateField = (k: keyof typeof form, v: any) => setForm(p => ({ ...p, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    setError('');
+    setSuccess(false);
+    try {
+      const payload: Record<string, any> = { ...form };
+      if (dailyBudgetDollars) payload.daily_budget_cents = Math.round(parseFloat(dailyBudgetDollars) * 100);
+      if (totalBudgetDollars) payload.total_budget_cents = Math.round(parseFloat(totalBudgetDollars) * 100);
+      const res = await fetch('/api/integrations/reddit-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create campaign');
+      setSuccess(true);
+      setForm({ name: '', objective: 'BRAND_AWARENESS', status: 'PAUSED' });
+      setDailyBudgetDollars('');
+      setTotalBudgetDollars('');
+      onCreated();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const inputClass = "w-full bg-zinc-900 border border-orange-500/20 rounded-lg px-3 py-2 text-[13px] text-zinc-100 focus:outline-none focus:border-orange-500/50 placeholder:text-zinc-600";
+  const labelClass = "block text-[11px] font-medium text-zinc-400 mb-1.5 uppercase tracking-wider";
+
+  return (
+    <div className="border border-orange-500/20 rounded-xl p-5 bg-orange-500/5">
+      <h3 className="text-[13px] font-semibold text-zinc-100 mb-4 flex items-center gap-2">
+        <Plus size={14} className="text-orange-500" /> New Reddit Campaign
+      </h3>
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Spring Brand Awareness" value={form.name} onChange={e => updateField('name', e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Objective</label>
+          <select className={inputClass} value={form.objective} onChange={e => updateField('objective', e.target.value)}>
+            <option value="BRAND_AWARENESS">Brand Awareness</option>
+            <option value="TRAFFIC">Traffic</option>
+            <option value="CONVERSIONS">Conversions</option>
+            <option value="VIDEO_VIEWS">Video Views</option>
+            <option value="APP_INSTALLS">App Installs</option>
+            <option value="LEAD_GENERATION">Lead Generation</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={form.status} onChange={e => updateField('status', e.target.value as any)}>
+            <option value="PAUSED">Paused (recommended)</option>
+            <option value="ACTIVE">Active</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Daily Budget (USD, optional)</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 50.00" value={dailyBudgetDollars} onChange={e => setDailyBudgetDollars(e.target.value)} />
+        </div>
+        <div>
+          <label className={labelClass}>Total Budget (USD, optional)</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 1000.00" value={totalBudgetDollars} onChange={e => setTotalBudgetDollars(e.target.value)} />
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5 bg-[#FF4500] border border-orange-500/20 hover:bg-orange-600" disabled={creating || !form.name}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── Apple Search Ads Create Campaign Form ────────────────────────────────────
+function AppleSearchAdsCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [name, setName] = useState('');
+  const [adamId, setAdamId] = useState('');
+  const [budgetAmount, setBudgetAmount] = useState('');
+  const [dailyBudgetAmount, setDailyBudgetAmount] = useState('');
+  const [currency, setCurrency] = useState('USD');
+  const [countries, setCountries] = useState('US');
+  const [status, setStatus] = useState<'ENABLED' | 'PAUSED'>('PAUSED');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    setError('');
+    setSuccess(false);
+    try {
+      const payload: CreateAppleSearchAdsCampaignInput = {
+        name,
+        adamId: parseInt(adamId, 10),
+        budgetAmount,
+        currency,
+        status,
+        countriesOrRegions: countries.split(',').map(c => c.trim().toUpperCase()).filter(Boolean),
+      };
+      if (dailyBudgetAmount) payload.dailyBudgetAmount = dailyBudgetAmount;
+
+      const res = await fetch('/api/integrations/apple-search-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create campaign');
+      setSuccess(true);
+      setName(''); setAdamId(''); setBudgetAmount(''); setDailyBudgetAmount(''); setCountries('US');
+      onCreated();
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const inputClass = 'w-full bg-zinc-900 border border-zinc-700/50 rounded-lg px-3 py-2 text-[13px] text-zinc-100 focus:outline-none focus:border-zinc-500/70 placeholder:text-zinc-600';
+  const labelClass = 'block text-[11px] font-medium text-zinc-400 mb-1.5 uppercase tracking-wider';
+
+  return (
+    <div className="border border-zinc-700/40 rounded-xl p-5 bg-zinc-900/50">
+      <h3 className="text-[13px] font-semibold text-zinc-100 mb-4 flex items-center gap-2">
+        <Plus size={14} className="text-gray-400" /> New Apple Search Ads Campaign
+      </h3>
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Brand — US iOS" value={name} onChange={e => setName(e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>App Store App ID (adamId)</label>
+          <input className={inputClass} type="number" placeholder="e.g. 123456789" value={adamId} onChange={e => setAdamId(e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Currency</label>
+          <select className={inputClass} value={currency} onChange={e => setCurrency(e.target.value)}>
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
+            <option value="GBP">GBP</option>
+            <option value="JPY">JPY</option>
+            <option value="AUD">AUD</option>
+            <option value="CAD">CAD</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Total Budget ({currency})</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 1000.00" value={budgetAmount} onChange={e => setBudgetAmount(e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Daily Budget ({currency}, optional)</label>
+          <input className={inputClass} type="number" min="0" step="0.01" placeholder="e.g. 50.00" value={dailyBudgetAmount} onChange={e => setDailyBudgetAmount(e.target.value)} />
+        </div>
+        <div>
+          <label className={labelClass}>Countries (comma-separated)</label>
+          <input className={inputClass} placeholder="e.g. US, GB, AU" value={countries} onChange={e => setCountries(e.target.value)} />
+        </div>
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={status} onChange={e => setStatus(e.target.value as any)}>
+            <option value="PAUSED">Paused (recommended)</option>
+            <option value="ENABLED">Enabled</option>
+          </select>
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5 bg-zinc-800 border border-zinc-600/40 hover:bg-zinc-700" disabled={creating || !name || !adamId || !budgetAmount}>
+            {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
+          </Button>
+          {error && <span className="text-[12px] text-red-400">{error}</span>}
+          {success && <span className="text-[12px] text-emerald-400">Campaign created successfully!</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─── Flipkart Ads Create Campaign Form ───────────────────────────────────────
+function FlipkartAdsCreateCampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [form, setForm] = useState<{
+    name: string;
+    type: 'SPONSORED_PRODUCTS' | 'SPONSORED_BRANDS' | 'DISPLAY';
+    status: 'ACTIVE' | 'PAUSED';
+  }>({ name: '', type: 'SPONSORED_PRODUCTS', status: 'PAUSED' });
+  const [budget, setBudget] = useState('');
+  const [dailyBudget, setDailyBudget] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const updateField = (k: keyof typeof form, v: any) => setForm(p => ({ ...p, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    setError('');
+    setSuccess(false);
+    try {
+      const payload: CreateFlipkartAdsCampaignInput = {
+        ...form,
+        budget: parseFloat(budget),
+      };
+      if (dailyBudget) payload.dailyBudget = parseFloat(dailyBudget);
+
+      const res = await fetch('/api/integrations/flipkart-ads/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create campaign');
+      setSuccess(true);
+      setForm({ name: '', type: 'SPONSORED_PRODUCTS', status: 'PAUSED' });
+      setBudget('');
+      setDailyBudget('');
+      onCreated();
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const inputClass = 'w-full bg-zinc-900 border border-blue-500/20 rounded-lg px-3 py-2 text-[13px] text-zinc-100 focus:outline-none focus:border-blue-500/50 placeholder:text-zinc-600';
+  const labelClass = 'block text-[11px] font-medium text-zinc-400 mb-1.5 uppercase tracking-wider';
+
+  return (
+    <div className="border border-blue-500/20 rounded-xl p-5 bg-blue-500/5">
+      <h3 className="text-[13px] font-semibold text-zinc-100 mb-4 flex items-center gap-2">
+        <Plus size={14} className="text-[#2874F0]" /> New Flipkart Campaign
+      </h3>
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Campaign Name</label>
+          <input className={inputClass} placeholder="e.g. Summer Sale – Sponsored Products" value={form.name} onChange={e => updateField('name', e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Campaign Type</label>
+          <select className={inputClass} value={form.type} onChange={e => updateField('type', e.target.value as any)}>
+            <option value="SPONSORED_PRODUCTS">Sponsored Products</option>
+            <option value="SPONSORED_BRANDS">Sponsored Brands</option>
+            <option value="DISPLAY">Display Ads</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Initial Status</label>
+          <select className={inputClass} value={form.status} onChange={e => updateField('status', e.target.value as any)}>
+            <option value="PAUSED">Paused (recommended)</option>
+            <option value="ACTIVE">Active</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Total Budget (INR ₹)</label>
+          <input className={inputClass} type="number" min="0" step="1" placeholder="e.g. 50000" value={budget} onChange={e => setBudget(e.target.value)} required />
+        </div>
+        <div>
+          <label className={labelClass}>Daily Budget (INR ₹, optional)</label>
+          <input className={inputClass} type="number" min="0" step="1" placeholder="e.g. 5000" value={dailyBudget} onChange={e => setDailyBudget(e.target.value)} />
+        </div>
+        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+          <Button type="submit" variant="default" className="text-[12px] h-9 px-5 bg-[#2874F0] hover:bg-blue-600 border-0" disabled={creating || !form.name || !budget}>
             {creating ? <><Loader2 size={14} className="animate-spin mr-2" /> Creating...</> : <><Plus size={14} className="mr-1.5" /> Create Campaign</>}
           </Button>
           {error && <span className="text-[12px] text-red-400">{error}</span>}
