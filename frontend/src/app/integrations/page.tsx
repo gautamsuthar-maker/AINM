@@ -2113,7 +2113,7 @@ function IntegrationsContent() {
               const totalC = p.capabilityGroups.reduce((a, g) => a + g.capabilities.length, 0);
               const isGoogle = p.id === 'google-ads';
               return (
-                <div key={p.id} className="rounded-xl border border-brand-border bg-brand-card p-4 flex flex-col gap-3">
+                <div key={p.id} className="rounded-xl border border-brand-border bg-brand-card p-4 flex h-full flex-col gap-3">
                   <div className="flex items-center gap-3">
                     <PlatformLogo platform={p} />
                     <div className="flex-1 min-w-0">
@@ -2141,8 +2141,8 @@ function IntegrationsContent() {
                     ))}
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-1">
-                    <span className="text-[11px] text-brand-text-dim">{p.authType}</span>
+                  <div className="flex min-h-[28px] items-center justify-between gap-2 pt-1">
+                    <span className="truncate text-[11px] text-brand-text-dim">{p.authType}</span>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
@@ -2165,7 +2165,8 @@ function IntegrationsContent() {
                     </div>
                   </div>
 
-                  {isGoogle ? (
+                  <div className="mt-auto">
+                    {isGoogle ? (
                     p.status === 'connected' ? (
                       <div className="flex gap-2 mt-1">
                         <Button variant="default" className="flex-1 text-[12px] h-8" onClick={() => setTab('google-ads')}>
@@ -2350,6 +2351,7 @@ function IntegrationsContent() {
                       {p.status === 'connected' ? <><RefreshCw size={12} className="mr-1.5" /> Re-sync</> : <><Plus size={12} className="mr-1.5" /> Connect</>}
                     </Button>
                   )}
+                  </div>
                 </div>
               );
             })}
