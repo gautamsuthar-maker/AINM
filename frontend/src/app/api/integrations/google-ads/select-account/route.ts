@@ -5,13 +5,20 @@ export async function POST(request: NextRequest) {
   try {
     const { customerId, accountName } = await request.json();
 
-    if (!customerId) {
-      return NextResponse.json({ error: 'customerId is required' }, { status: 400 });
-    }
-
     const tokens = getStoredTokens();
     if (!tokens?.refresh_token) {
       return NextResponse.json({ error: 'Not authenticated. Complete OAuth first.' }, { status: 401 });
+    }
+
+    // Empty customerId clears the account selection (reverts to 'authenticated' step)
+    if (!customerId) {
+      storeTokens({
+        ...tokens,
+        customer_id: '',
+        account_name: undefined,
+        connected_at: new Date().toISOString(),
+      });
+      return NextResponse.json({ success: true, customerId: null });
     }
 
     storeTokens({

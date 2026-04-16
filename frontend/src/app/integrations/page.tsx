@@ -988,6 +988,7 @@ function IntegrationsContent() {
   const [gadsLoading, setGadsLoading] = useState(true);
   const [campaigns, setCampaigns] = useState<CampaignData[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [campaignsError, setCampaignsError] = useState<string | null>(null);
   const [connectingOAuth, setConnectingOAuth] = useState(false);
 
   // Account selection
@@ -1025,12 +1026,18 @@ function IntegrationsContent() {
 
   const fetchCampaigns = useCallback(async () => {
     setCampaignsLoading(true);
+    setCampaignsError(null);
     try {
       const res = await fetch('/api/integrations/google-ads/campaigns');
-      if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
-      setCampaigns(data.campaigns ?? []);
+      if (!res.ok) {
+        setCampaignsError(data.error || 'Failed to fetch campaigns');
+        setCampaigns([]);
+      } else {
+        setCampaigns(data.campaigns ?? []);
+      }
     } catch {
+      setCampaignsError('Failed to fetch campaigns. Please try again.');
       setCampaigns([]);
     } finally {
       setCampaignsLoading(false);
@@ -1092,7 +1099,21 @@ function IntegrationsContent() {
     await fetch('/api/integrations/google-ads/disconnect', { method: 'POST' });
     setGadsStatus({ connected: false, step: 'disconnected' });
     setCampaigns([]);
+    setCampaignsError(null);
     setAccessibleAccounts([]);
+  }
+
+  async function handleSwitchGadsAccount() {
+    // Drop back to account selection (keep refresh token, just clear customer_id)
+    await fetch('/api/integrations/google-ads/select-account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerId: '' }),
+    });
+    setCampaignsError(null);
+    setCampaigns([]);
+    setGadsStatus(prev => ({ ...prev, step: 'authenticated', connected: false }));
+    fetchAccounts();
   }
 
   // ── LinkedIn Ads state ───────────────────────────────────────────────────
@@ -2640,6 +2661,19 @@ function IntegrationsContent() {
                   </Button>
                 </div>
               </div>
+
+              {/* Account error banner */}
+              {campaignsError && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    <span className="text-red-400 text-[13px] mt-0.5">⚠</span>
+                    <p className="text-[13px] text-red-300">{campaignsError}</p>
+                  </div>
+                  <Button variant="default" className="text-[12px] h-7 shrink-0" onClick={handleSwitchGadsAccount}>
+                    Switch Account
+                  </Button>
+                </div>
+              )}
 
               {/* KPI cards */}
               {campaigns.length > 0 && (

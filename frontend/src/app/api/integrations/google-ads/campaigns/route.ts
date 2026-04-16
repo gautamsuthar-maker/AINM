@@ -10,6 +10,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ campaigns });
   } catch (error: any) {
     console.error('Failed to fetch campaigns:', error);
+    const isNotEnabled = error?.errors?.[0]?.message?.includes('not yet enabled') ||
+      error?.errors?.[0]?.message?.includes('deactivated');
+    if (isNotEnabled) {
+      return NextResponse.json(
+        { error: 'This Google Ads account is not yet enabled or has been deactivated. Please disconnect and connect a different account.' },
+        { status: 422 }
+      );
+    }
     return NextResponse.json(
       { error: error.message || 'Failed to fetch campaigns' },
       { status: error.message?.includes('Not connected') ? 401 : 500 }

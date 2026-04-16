@@ -79,13 +79,7 @@ export async function GET() {
           });
         }
       } catch {
-        accounts.push({
-          customerId,
-          descriptiveName: `Account ${customerId}`,
-          currencyCode: '',
-          timeZone: '',
-          manager: false,
-        });
+        // Skip accounts that are inaccessible (disabled, deactivated, or not yet enabled)
       }
     }
 
